@@ -1,0 +1,20 @@
+name: homelab
+
+include:
+  # --- Observability ---
+  - prometheus/compose.yml
+  - loki/compose.yml
+  - tempo/compose.yml
+  - otel-collector/compose.yml
+  - alloy/compose.yml
+  - grafana/compose.yml
+  # --- Streaming ---
+  - kafka/compose.yml
+  - kafka-ui/compose.yml
+  - kafka-exporter/compose.yml
+  # --- Databases ---
+  - postgres/compose.yml
+  - mongodb/compose.yml
+  # --- Applications ---
+  # - myapi-a/compose.yml
+  # - myapi-b/compose.yml

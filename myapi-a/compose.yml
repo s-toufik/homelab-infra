@@ -1,0 +1,36 @@
+services:
+  myapi-a:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: homelab/myapi-a:local
+    container_name: myapi-a
+    restart: unless-stopped
+    labels:
+      homelab.logs.otlp: "true"   # Alloy skips stdout logs: they already go to Loki via OTLP
+    depends_on:
+      otel-collector:
+        condition: service_started
+      kafka:
+        condition: service_healthy     # wait until the broker answers
+    environment:
+      OTEL_SERVICE_NAME: myapi-a
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=homelab,deployment.environment=homelab
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_METRIC_EXPORT_INTERVAL: "15000"
+      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
+      OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: "health"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8001:8000"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

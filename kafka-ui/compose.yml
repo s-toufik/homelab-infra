@@ -1,0 +1,22 @@
+services:
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:${KAFKA_UI_TAG:-v1.2.0}
+    container_name: kafka-ui
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: homelab
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: "false"
+      LOGGING_LEVEL_ROOT: warn
+      JAVA_OPTS: -Xms256m -Xmx512m
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8080:8080"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

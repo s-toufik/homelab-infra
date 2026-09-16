@@ -1,0 +1,53 @@
+# ---------- Secrets / local config ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+
+# Local compose overrides (per-machine tweaks you don't want to commit)
+compose.override.yml
+compose.override.yaml
+docker-compose.override.yml
+
+# ---------- Data & backups (created by make backup / bind mounts) ----------
+backups/
+data/
+*.dump
+*.archive
+*.sql.gz
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# ---------- Rust ----------
+target/
+
+# ---------- Node ----------
+node_modules/
+
+# ---------- Logs & temp ----------
+*.log
+*.tmp
+*.swp
+*~
+
+# ---------- Editors / OS ----------
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db

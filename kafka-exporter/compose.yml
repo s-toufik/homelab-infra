@@ -1,0 +1,21 @@
+services:
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:${KAFKA_EXPORTER_TAG:-v1.9.0}
+    container_name: kafka-exporter
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - --kafka.server=kafka:9092
+      - --kafka.version=3.6.0     # protocol version sent by the client; Kafka 4.x rejects very old ones
+      - --topic.filter=^[^_].*    # skip internal topics (__consumer_offsets, ...)
+      - --log.level=warn
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:9308:9308"
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 128m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

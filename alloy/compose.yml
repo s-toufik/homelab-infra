@@ -1,0 +1,38 @@
+services:
+  alloy:
+    image: grafana/alloy:${ALLOY_TAG:-v1.9.2}
+    container_name: alloy
+    hostname: ${HOST_NAME:-homelab}
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    privileged: true
+    pid: host
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_started
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+      - /:/rootfs:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:12345:12345"  # Alloy UI (pipeline graph)
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  alloy-data:

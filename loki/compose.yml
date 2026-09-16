@@ -1,0 +1,31 @@
+services:
+  loki-init:
+    image: busybox:1.36
+    user: root
+    command: ["sh", "-c", "chown -R 10001:10001 /loki"]
+    volumes:
+      - loki-data:/loki
+    restart: "no"
+
+  loki:
+    image: grafana/loki:${LOKI_TAG:-3.5.1}
+    container_name: loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yml"]
+    depends_on:
+      loki-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:3100:3100"
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 3g }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  loki-data:

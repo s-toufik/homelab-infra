@@ -1,0 +1,31 @@
+services:
+  mongodb:
+    image: mongo:${MONGO_TAG:-8.0}
+    container_name: mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?MONGO_ROOT_PASSWORD must be set in .env}
+      TZ: ${TZ:-UTC}
+    command: ["--wiredTigerCacheSizeGB", "1"]
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 3g }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  mongodb-data:
+  mongodb-config:

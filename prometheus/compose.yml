@@ -1,0 +1,33 @@
+services:
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_TAG:-v3.4.1}
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-50GB}
+      - --web.enable-remote-write-receiver   # Alloy + Tempo metrics-generator push here
+      - --web.enable-otlp-receiver           # OTel Collector pushes app metrics here
+      - --enable-feature=exemplar-storage    # metrics -> traces links in Grafana
+      - --web.enable-lifecycle               # curl -X POST :9090/-/reload
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 3g }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  prometheus-data:

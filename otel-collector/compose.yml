@@ -1,0 +1,25 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:${OTELCOL_TAG:-0.128.0}
+    container_name: otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yml"]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+    volumes:
+      - ./config.yml:/etc/otelcol/config.yml:ro
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:4317:4317"   # OTLP gRPC
+      - "${BIND_ADDR:-127.0.0.1}:4318:4318"   # OTLP HTTP
+      - "${BIND_ADDR:-127.0.0.1}:13133:13133" # health_check
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
