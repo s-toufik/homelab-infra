@@ -722,32 +722,24 @@ Find your Tailscale IP with `tailscale ip -4`, and replace `100.80.98.112` below
 ```bash
 sudo tee /usr/local/bin/internet-speedtest >/dev/null <<'EOF'
 #!/usr/bin/env bash
-# internet-speedtest — measure internet speed, log it to CSV, and send it to Grafana (via the OTel Collector)
+# internet-speedtest — measure internet speed and send it to Grafana (via the OTel Collector)
 set -euo pipefail
 
 OTLP_URL="http://100.80.98.112:4318/v1/metrics"   # your Tailscale IP (BIND_ADDR) + port 4318
-CSV=/var/log/internet-speedtest.csv
 SPEEDTEST=${SPEEDTEST:-/snap/bin/speedtest}
 
 result=$("$SPEEDTEST" --accept-license --accept-gdpr --format=json)
 
-payload=$(python3 - "$result" "$CSV" <<'PY'
-import json, sys, time, os
-r, csv_path = json.loads(sys.argv[1]), sys.argv[2]
+# Python prints 2 lines: a readable summary, then the OTLP JSON payload
+output=$(python3 - "$result" <<'PY'
+import json, sys, time
+r = json.loads(sys.argv[1])
 down = r["download"]["bandwidth"] * 8 / 1e6
 up   = r["upload"]["bandwidth"] * 8 / 1e6
 ping = r["ping"]["latency"]
 jitter = r["ping"]["jitter"]
 loss = r.get("packetLoss")
 
-# 1) CSV log (kept even if the stack is down)
-new = not os.path.exists(csv_path)
-with open(csv_path, "a") as f:
-    if new:
-        f.write("time,download_mbps,upload_mbps,ping_ms,jitter_ms,packet_loss_pct\n")
-    f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')},{down:.1f},{up:.1f},{ping:.1f},{jitter:.1f},{'' if loss is None else loss}\n")
-
-# 2) OTLP JSON for the collector
 now = str(time.time_ns())
 def gauge(name, value):
     return {"name": name, "gauge": {"dataPoints": [{"asDouble": float(value), "timeUnixNano": now}]}}
@@ -755,16 +747,20 @@ metrics = [gauge("internet_download_mbps", down), gauge("internet_upload_mbps", 
            gauge("internet_ping_ms", ping), gauge("internet_jitter_ms", jitter)]
 if loss is not None:
     metrics.append(gauge("internet_packet_loss_percent", loss))
+
+print(f"download={down:.1f} Mbit/s upload={up:.1f} Mbit/s ping={ping:.1f} ms jitter={jitter:.1f} ms loss={loss}")
 print(json.dumps({"resourceMetrics": [{
     "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "speedtest"}}]},
     "scopeMetrics": [{"scope": {"name": "speedtest"}, "metrics": metrics}]}]}))
 PY
 )
+summary=$(head -n1 <<<"$output")
+payload=$(tail -n1 <<<"$output")
 
 if curl -fsS -m 10 -o /dev/null -H 'Content-Type: application/json' -d "$payload" "$OTLP_URL"; then
-  echo "Sent to Grafana: $(tail -n1 "$CSV")"
+  echo "Sent to Grafana: $summary"
 else
-  echo "Stack not reachable, saved to CSV only: $(tail -n1 "$CSV")"
+  echo "Stack not reachable, result not stored: $summary"
 fi
 EOF
 sudo chmod +x /usr/local/bin/internet-speedtest
