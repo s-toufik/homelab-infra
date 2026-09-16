@@ -1,0 +1,118 @@
+# Two llama.cpp servers (CPU), OpenAI-compatible API + Prometheus metrics.
+#   llm-large : Qwen3-8B     (Q4_K_M) — better answers and tool use
+#   llm-small : Qwen3.5-2B   (Q8_0)   — very fast, simple tool calls
+# Containers call them at http://llm-large:8080/v1 and http://llm-small:8080/v1
+services:
+  llm-models-init:
+    image: busybox:1.36
+    user: root
+    command: ["sh", "-c", "chmod 0777 /models"]
+    volumes:
+      - llm-models:/models
+    restart: "no"
+
+  llm-large:
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_TAG:-server}
+    container_name: llm-large
+    restart: unless-stopped
+    depends_on:
+      llm-models-init:
+        condition: service_completed_successfully
+    environment:
+      LLAMA_CACHE: /models          # downloaded GGUF files are kept in the volume
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -hf
+      - ${LLM_LARGE_MODEL:-unsloth/Qwen3-8B-GGUF:Q4_K_M}
+      - --alias
+      - ${LLM_LARGE_ALIAS:-qwen3-8b}
+      - --jinja                       # model chat template: required for tool calling
+      - --chat-template-kwargs
+      - '{"enable_thinking":false}'   # no reasoning phase: short and fast answers
+      - --ctx-size
+      - ${LLM_LARGE_CTX:-8192}
+      - --parallel
+      - "1"
+      - --threads
+      - ${LLM_LARGE_THREADS:-6}
+      - --temp
+      - "0.7"
+      - --top-p
+      - "0.8"
+      - --top-k
+      - "20"
+      - --metrics                     # Prometheus metrics on /metrics
+    volumes:
+      - llm-models:/models
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${LLM_LARGE_PORT:-8090}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15m               # first start downloads the model
+    deploy:
+      resources:
+        limits: { cpus: "6.0", memory: 8g }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  llm-small:
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_TAG:-server}
+    container_name: llm-small
+    restart: unless-stopped
+    depends_on:
+      llm-models-init:
+        condition: service_completed_successfully
+    environment:
+      LLAMA_CACHE: /models
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -hf
+      - ${LLM_SMALL_MODEL:-unsloth/Qwen3.5-2B-GGUF:Q8_0}
+      - --alias
+      - ${LLM_SMALL_ALIAS:-qwen3.5-2b}
+      - --no-mmproj                   # Qwen3.5 is multimodal: skip the vision part, text only
+      - --jinja
+      - --chat-template-kwargs
+      - '{"enable_thinking":false}'
+      - --ctx-size
+      - ${LLM_SMALL_CTX:-8192}
+      - --parallel
+      - "2"
+      - --threads
+      - ${LLM_SMALL_THREADS:-4}
+      - --temp
+      - "0.7"
+      - --top-p
+      - "0.8"
+      - --top-k
+      - "20"
+      - --metrics
+    volumes:
+      - llm-models:/models
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${LLM_SMALL_PORT:-8091}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10m
+    deploy:
+      resources:
+        limits: { cpus: "4.0", memory: 4g }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  llm-models:

@@ -14,6 +14,10 @@ COMPOSE  := set -a; [ -f $(ENV_FILE) ] && . ./$(ENV_FILE); set +a; docker compos
 # Address the published ports listen on (BIND_ADDR from .env, e.g. your Tailscale IP)
 HOST := $(shell [ -f .env ] && . ./.env; echo "$${BIND_ADDR:-127.0.0.1}")
 
+# Published ports of the llama.cpp servers (from .env)
+LLM_LARGE_PORT := $(shell [ -f .env ] && . ./.env; echo "$${LLM_LARGE_PORT:-8090}")
+LLM_SMALL_PORT := $(shell [ -f .env ] && . ./.env; echo "$${LLM_SMALL_PORT:-8091}")
+
 # Optional service selection
 S ?=
 TAIL ?= 200
@@ -23,6 +27,7 @@ OBS   := prometheus loki tempo otel-collector alloy grafana
 KAFKA := kafka kafka-ui kafka-exporter
 DB    := postgres mongodb
 APPS  := myapi-a myapi-b
+LLM_SERVICES := llm-large llm-small
 
 BACKUP_DIR := backups
 DATE := $(shell date +%F_%H%M)
@@ -94,7 +99,7 @@ update: check-env ## Pull new images then recreate changed containers
 
 ##@ Groups
 
-.PHONY: up-obs up-kafka up-db up-apps
+.PHONY: up-obs up-kafka up-db up-apps up-llm
 up-obs: check-env ## Start observability only (Prometheus, Loki, Tempo, OTel, Alloy, Grafana)
 	@$(COMPOSE) up -d $(OBS)
 up-kafka: check-env ## Start Kafka, Kafka UI, exporter
@@ -103,6 +108,8 @@ up-db: check-env ## Start PostgreSQL and MongoDB
 	@$(COMPOSE) up -d $(DB)
 up-apps: check-env ## Build & start myapi-a and myapi-b
 	@$(COMPOSE) up -d --build $(APPS)
+up-llm: check-env ## Start the llama.cpp servers (llm-large, llm-small)
+	@$(COMPOSE) up -d $(LLM_SERVICES)
 
 .PHONY: down-apps
 down-apps: check-env ## Stop only the apps
@@ -132,7 +139,9 @@ HEALTH_URLS := \
   'alloy|http://$(HOST):12345/-/ready' \
   'kafka-exporter|http://$(HOST):9308/metrics' \
   'myapi-a|http://$(HOST):8001/health' \
-  'myapi-b|http://$(HOST):8002/health'
+  'myapi-b|http://$(HOST):8002/health' \
+  'llm-large|http://$(HOST):$(LLM_LARGE_PORT)/health' \
+  'llm-small|http://$(HOST):$(LLM_SMALL_PORT)/health'
 
 .PHONY: health
 health: ## Quick HTTP health checks of main endpoints
@@ -213,6 +222,42 @@ traffic: ## Generate demo traces: make traffic [N=200 FANOUT=5]
 	@echo "Sending $(N) requests to myapi-b /chain (fanout=$(FANOUT))..."
 	@for i in $$(seq 1 $(N)); do curl -fs -o /dev/null "http://$(HOST):8002/chain?fanout=$(FANOUT)" || true; done
 	@echo "Done — open Grafana → Explore → Tempo"
+
+##@ LLM (llama.cpp)
+
+# M = which model for llm-ask / llm-logs: large or small
+M ?= large
+Q ?= What is Apache Kafka? Answer in two sentences.
+LLM_PORT = $(if $(filter small,$(M)),$(LLM_SMALL_PORT),$(LLM_LARGE_PORT))
+
+.PHONY: llm-down
+llm-down: check-env ## Stop the llama.cpp servers (frees their RAM)
+	@$(COMPOSE) stop $(LLM_SERVICES)
+
+.PHONY: llm-status
+llm-status: ## Health and model of each llama.cpp server
+	@for entry in large:$(LLM_LARGE_PORT) small:$(LLM_SMALL_PORT); do \
+	  name=$${entry%%:*}; port=$${entry##*:}; \
+	  if curl -fsS -o /dev/null --max-time 3 "http://$(HOST):$$port/health"; then \
+	    model=$$(curl -fsS --max-time 3 "http://$(HOST):$$port/v1/models" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"][0]["id"])'); \
+	    printf "  \033[32m✓\033[0m llm-%-6s :%s  %s\n" "$$name" "$$port" "$$model"; \
+	  else \
+	    printf "  \033[31m✗\033[0m llm-%-6s :%s  not ready (downloading, loading or stopped)\n" "$$name" "$$port"; \
+	  fi; \
+	done
+
+.PHONY: llm-logs
+llm-logs: check-env ## Follow llama.cpp logs (both, or M=large|small)
+	@$(COMPOSE) logs -f --tail=$(TAIL) $(if $(filter command line,$(origin M)),llm-$(M),$(LLM_SERVICES))
+
+.PHONY: llm-ask
+llm-ask: ## Ask a question: make llm-ask [M=large|small] [Q="..."]
+	@python3 llm/test.py ask "http://$(HOST):$(LLM_PORT)" "$(Q)"
+
+.PHONY: llm-tools
+llm-tools: ## Check both models produce a tool call
+	@echo "── llm-large ──"; python3 llm/test.py tools "http://$(HOST):$(LLM_LARGE_PORT)" || true
+	@echo; echo "── llm-small ──"; python3 llm/test.py tools "http://$(HOST):$(LLM_SMALL_PORT)" || true
 
 ##@ Backup
 

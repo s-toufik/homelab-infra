@@ -49,3 +49,12 @@ scrape_configs:
     scrape_interval: 30s
     static_configs:
       - targets: ["kafka-exporter:9308"]
+
+  - job_name: llama-cpp
+    static_configs:
+      - targets: ["llm-large:8080"]
+        labels:
+          model: qwen3-8b
+      - targets: ["llm-small:8080"]
+        labels:
+          model: qwen3.5-2b

@@ -18,6 +18,8 @@ include:
   # --- Databases ---
   - postgres/compose.yml
   - mongodb/compose.yml
+  # --- LLM ---
+  - llm/compose.yml
   # --- Applications ---
 #  - myapi-a/compose.yml
-#  - myapi-b/compose.yml
+# - myapi-b/compose.yml
