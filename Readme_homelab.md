@@ -7,6 +7,7 @@ This guide turns an Ubuntu laptop into a server that:
 - starts **only Tailscale** at boot
 - reboots by itself if it freezes, and Tailscale comes back automatically
 - reports its health (temperatures, battery, uptime, reboots, network) to Grafana
+- measures its internet speed every 2 hours
 
 Follow the sections in order. Each step has a **Check** so you know it worked before moving on.
 
@@ -26,8 +27,9 @@ Follow the sections in order. Each step has a **Check** so you know it worked be
 10. [Battery and power cuts](#10-battery-and-power-cuts)
 11. [Monitor the server in Grafana](#11-monitor-the-server-in-grafana)
 12. [Get notified if the server goes offline](#12-get-notified-if-the-server-goes-offline)
-13. [Final test](#13-final-test)
-14. [Troubleshooting and undo](#14-troubleshooting-and-undo)
+13. [Monitor internet speed](#13-monitor-internet-speed)
+14. [Final test](#14-final-test)
+15. [Troubleshooting and undo](#15-troubleshooting-and-undo)
 
 ---
 
@@ -67,8 +69,8 @@ Without this, the laptop disconnects from your tailnet after 180 days and needs 
 **Check:**
 
 ```bash
-tailscale status  
-tailscale ip -4     
+tailscale status    # the first line shows this laptop
+tailscale ip -4     # note this IP, e.g. 100.80.98.112
 ```
 
 ---
@@ -697,7 +699,202 @@ The ping URL is private: don't commit it to a public repo.
 
 ---
 
-## 13. Final test
+## 13. Monitor internet speed
+
+A script runs an internet speed test every 2 hours. It saves each result to a CSV file and sends it to the homelab stack, so you can graph download, upload, ping and jitter in Grafana.
+
+Nothing in the homelab project changes: the OTel Collector already accepts metrics on port 4318 and forwards them to Prometheus.
+
+> Each test downloads and uploads roughly 1–2 GB at fiber speeds, and briefly uses the whole connection. Don't run it more often than every hour.
+
+### 13.1 Install the speed test client
+
+The official Ookla client is accurate on fast connections:
+
+```bash
+sudo snap install speedtest
+```
+
+### 13.2 Create the script
+
+Find your Tailscale IP with `tailscale ip -4`, and replace `100.80.98.112` below with it:
+
+```bash
+sudo tee /usr/local/bin/internet-speedtest >/dev/null <<'EOF'
+#!/usr/bin/env bash
+# internet-speedtest — measure internet speed, log it to CSV, and send it to Grafana (via the OTel Collector)
+set -euo pipefail
+
+OTLP_URL="http://100.80.98.112:4318/v1/metrics"   # your Tailscale IP (BIND_ADDR) + port 4318
+CSV=/var/log/internet-speedtest.csv
+SPEEDTEST=${SPEEDTEST:-/snap/bin/speedtest}
+
+result=$("$SPEEDTEST" --accept-license --accept-gdpr --format=json)
+
+payload=$(python3 - "$result" "$CSV" <<'PY'
+import json, sys, time, os
+r, csv_path = json.loads(sys.argv[1]), sys.argv[2]
+down = r["download"]["bandwidth"] * 8 / 1e6
+up   = r["upload"]["bandwidth"] * 8 / 1e6
+ping = r["ping"]["latency"]
+jitter = r["ping"]["jitter"]
+loss = r.get("packetLoss")
+
+# 1) CSV log (kept even if the stack is down)
+new = not os.path.exists(csv_path)
+with open(csv_path, "a") as f:
+    if new:
+        f.write("time,download_mbps,upload_mbps,ping_ms,jitter_ms,packet_loss_pct\n")
+    f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')},{down:.1f},{up:.1f},{ping:.1f},{jitter:.1f},{'' if loss is None else loss}\n")
+
+# 2) OTLP JSON for the collector
+now = str(time.time_ns())
+def gauge(name, value):
+    return {"name": name, "gauge": {"dataPoints": [{"asDouble": float(value), "timeUnixNano": now}]}}
+metrics = [gauge("internet_download_mbps", down), gauge("internet_upload_mbps", up),
+           gauge("internet_ping_ms", ping), gauge("internet_jitter_ms", jitter)]
+if loss is not None:
+    metrics.append(gauge("internet_packet_loss_percent", loss))
+print(json.dumps({"resourceMetrics": [{
+    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "speedtest"}}]},
+    "scopeMetrics": [{"scope": {"name": "speedtest"}, "metrics": metrics}]}]}))
+PY
+)
+
+if curl -fsS -m 10 -o /dev/null -H 'Content-Type: application/json' -d "$payload" "$OTLP_URL"; then
+  echo "Sent to Grafana: $(tail -n1 "$CSV")"
+else
+  echo "Stack not reachable, saved to CSV only: $(tail -n1 "$CSV")"
+fi
+EOF
+sudo chmod +x /usr/local/bin/internet-speedtest
+```
+
+### 13.3 Test it once
+
+Start the stack first (`make up`), then:
+
+```bash
+sudo internet-speedtest
+```
+
+It takes about 30 seconds and prints:
+
+```
+Sent to Grafana: 2026-09-16 16:10:22,927.3,928.1,1.7,0.1,0
+```
+
+The columns are: time, download (Mbit/s), upload (Mbit/s), ping (ms), jitter (ms), packet loss (%).
+
+If it prints `Stack not reachable`, check the OTel Collector still publishes port 4318: `docker port otel-collector`.
+
+**Check** the data reached Prometheus: open `http://<tailscale-ip>:9090`, run `{__name__=~"internet.*"}`, and look at the **Table** tab. You should see `internet_download_mbps`, `internet_upload_mbps`, `internet_ping_ms` and `internet_jitter_ms`.
+
+### 13.4 Run it every 2 hours
+
+```bash
+sudo tee /etc/systemd/system/internet-speedtest.service >/dev/null <<'EOF'
+[Unit]
+Description=Internet speed test
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/internet-speedtest
+EOF
+
+sudo tee /etc/systemd/system/internet-speedtest.timer >/dev/null <<'EOF'
+[Unit]
+Description=Internet speed test every 2 hours
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=2h
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now internet-speedtest.timer
+```
+
+**Check:**
+
+```bash
+systemctl list-timers internet-speedtest.timer     # shows the next run
+journalctl -u internet-speedtest -n 5              # output of the last runs
+```
+
+To change the frequency, edit `OnUnitActiveSec=` in the timer file (e.g. `4h`), then run `sudo systemctl daemon-reload && sudo systemctl restart internet-speedtest.timer`.
+
+### 13.5 Create the Grafana dashboard
+
+1. Open Grafana, then **Dashboards → New → New dashboard → Add visualization**, and select **Prometheus**.
+2. On the right of the query editor, switch from **Builder** to **Code**.
+3. Paste the first query of the panel, open **Options** under it, and set:
+   - **Type:** `Range` (with `Instant`, you get no graph)
+   - **Legend:** `Custom`, with the name from the table
+4. For the second query of the same panel, click **+ Add query** and repeat step 3.
+5. Set the panel title, and the unit in **Standard options → Unit**.
+6. Click **Back to dashboard**, then **Add → Visualization** for the second panel.
+7. **Save** the dashboard as `Internet speed`.
+
+| Panel title | Query | Legend | Unit |
+|---|---|---|---|
+| Speed | `last_over_time(internet_download_mbps[3h])` | `Download` | Megabits/sec |
+|  | `last_over_time(internet_upload_mbps[3h])` | `Upload` |  |
+| Latency | `last_over_time(internet_ping_ms[3h])` | `Ping` | Milliseconds (ms) |
+|  | `last_over_time(internet_jitter_ms[3h])` | `Jitter` |  |
+
+Tips:
+
+- `last_over_time(...[3h])` keeps the line continuous between tests. Without it, Prometheus shows each value for only 5 minutes after the test, and the graph looks almost empty.
+- In **Graph styles → Show points**, choose **Always** to see each test as a dot.
+- This dashboard is stored in Grafana's database, not in the homelab repo. It survives restarts, but `make clean` deletes it.
+
+### 13.6 Read the history from the terminal
+
+The CSV keeps every result, including tests run while the stack was stopped (those don't appear in Grafana):
+
+```bash
+column -s, -t /var/log/internet-speedtest.csv | tail -n 20
+```
+
+### 13.7 Understand the results
+
+| Value | Good | Notes |
+|---|---|---|
+| Download / Upload | close to your plan | A laptop's 1 Gbit/s Ethernet port can't exceed about 940 Mbit/s, even on a faster plan |
+| Ping | under 30 ms | Time for a message to reach the test server and come back |
+| Jitter | under 5 ms | How much the ping varies; high jitter makes calls stutter |
+| Packet loss | 0 % | Sometimes empty: some test servers can't measure it |
+
+Speeds much lower than usual at some hours often mean your ISP is congested then, or something on your network was using the connection during the test.
+
+### 13.8 Undo the speed test
+
+```bash
+sudo systemctl disable --now internet-speedtest.timer
+sudo rm -f /etc/systemd/system/internet-speedtest.service /etc/systemd/system/internet-speedtest.timer
+sudo systemctl daemon-reload
+sudo rm -f /usr/local/bin/internet-speedtest
+```
+
+Optionally, also:
+
+```bash
+sudo rm -f /var/log/internet-speedtest.csv     # delete the history
+sudo snap remove speedtest                     # uninstall the Ookla client
+```
+
+In Grafana, delete the dashboard from **Dashboards → Internet speed → ⋮ → Delete**. The data already stored in Prometheus disappears on its own after its retention period (30 days by default).
+
+---
+
+## 14. Final test
 
 Do all of these once. Tick each line.
 
@@ -737,7 +934,7 @@ Do all of these once. Tick each line.
 
 ---
 
-## 14. Troubleshooting and undo
+## 15. Troubleshooting and undo
 
 ### The laptop still sleeps with the lid closed
 
@@ -779,6 +976,12 @@ sudo reboot
 
 Then find the cause with `journalctl -b -1 -e`.
 
+### The speed test shows no data in Grafana
+
+1. Check the data exists in Prometheus: open `http://<tailscale-ip>:9090` and run `{__name__=~"internet.*"}`.
+2. If it's there: in Grafana, select the **Prometheus** data source, set the query **Type** to **Range**, and make sure the time range includes the time of the test.
+3. If it's not there: run `sudo internet-speedtest` with the stack up, and watch `make logs S=otel-collector` for an error.
+
 ### Undo everything
 
 ```bash
@@ -798,6 +1001,10 @@ sudo rm -f /etc/systemd/system/tailscale-watchdog.* /usr/local/bin/tailscale-wat
 sudo rm -f /etc/systemd/system.conf.d/watchdog.conf /etc/modules-load.d/watchdog.conf
 sudo rm -f /etc/sysctl.d/99-server-autoreboot.conf
 sudo rm -rf /etc/systemd/system/tailscaled.service.d
+
+# Internet speed test
+sudo systemctl disable --now internet-speedtest.timer
+sudo rm -f /etc/systemd/system/internet-speedtest.* /usr/local/bin/internet-speedtest
 
 # Battery, heartbeat, updates
 sudo systemctl disable --now battery-limit.service heartbeat.timer
