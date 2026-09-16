@@ -16,6 +16,9 @@ services:
       kafka-init:
         condition: service_completed_successfully
     environment:
+      AUTH_TYPE: LOGIN_FORM
+      SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER:-admin}
+      SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD:?KAFKA_UI_PASSWORD must be set in .env}
       # --- KRaft combined mode (broker + controller) ---
       CLUSTER_ID: ${KAFKA_CLUSTER_ID:?KAFKA_CLUSTER_ID must be set in .env}
       KAFKA_NODE_ID: 1

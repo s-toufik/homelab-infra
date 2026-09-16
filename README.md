@@ -150,7 +150,7 @@ Add its folder with a `compose.yml` and list it under `include:` in the root `co
 
 ## Security notes
 
-This is a trusted-LAN setup: Kafka, Kafka UI, Loki, Tempo and Prometheus have no authentication. Before exposing anything beyond the LAN, set `BIND_ADDR=127.0.0.1` and put a reverse proxy with TLS + auth (Traefik, Caddy) in front. Alloy runs `privileged` with the Docker socket mounted (required for cAdvisor and log discovery).
+This is a trusted-LAN setup: Kafka, Loki, Tempo and Prometheus have no authentication. Before exposing anything beyond the LAN, set `BIND_ADDR=127.0.0.1` and put a reverse proxy with TLS + auth (Traefik, Caddy) in front. Alloy runs `privileged` with the Docker socket mounted (required for cAdvisor and log discovery).
 
 ## Upgrading
 
