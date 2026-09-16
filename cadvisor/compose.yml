@@ -1,0 +1,30 @@
+services:
+  cadvisor:
+    # v0.54.0+ is required with Docker 29's containerd image store (google/cadvisor#3709).
+    # Images from v0.56.0 onwards are published on ghcr.io only.
+    image: ghcr.io/google/cadvisor:${CADVISOR_TAG:-v0.60.5}
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    cgroup: host
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=15s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.service,com.docker.compose.project
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /var/lib/containerd:/var/lib/containerd:ro
+      - /dev/disk:/dev/disk:ro
+    # No published port: Prometheus scrapes cadvisor:8080 on the internal network
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 384m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

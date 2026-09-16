@@ -1,3 +1,5 @@
+# Root compose file: aggregates every component with `include` (Docker Compose >= 2.20).
+# All services share the project's default network, so they reach each other by service name.
 name: homelab
 
 include:
@@ -7,6 +9,7 @@ include:
   - tempo/compose.yml
   - otel-collector/compose.yml
   - alloy/compose.yml
+  - cadvisor/compose.yml
   - grafana/compose.yml
   # --- Streaming ---
   - kafka/compose.yml
@@ -16,5 +19,5 @@ include:
   - postgres/compose.yml
   - mongodb/compose.yml
   # --- Applications ---
-  # - myapi-a/compose.yml
-  # - myapi-b/compose.yml
+#  - myapi-a/compose.yml
+#  - myapi-b/compose.yml
