@@ -79,7 +79,7 @@ If the container is OOM-killed, lower the active on-demand model's `--ctx-size` 
 ## Metrics
 
 - `granite4-7b`: full generation-speed / tokens-per-minute panels, always populated.
-- On-demand models: the same panels populate automatically **while that model is loaded**, and go quiet once it unloads — nothing to configure per model.
+- On-demand models: the same panels populate **for up to `ttl` seconds (10 min) after each load**, then go quiet even if the model happens to still be up — this is intentional (see `exporter/poll-running.py`), not a bug: continuously monitoring an on-demand model would otherwise reset its own idle timer and prevent it from ever unloading.
 
 Grafana dashboard: **Homelab → LLM (llama.cpp)**.
 
@@ -91,4 +91,4 @@ Load one (e.g. `make llm-ask M=qwen3-30b-a3b`), then leave it idle for longer th
 make llm-running
 ```
 
-It should show `DOWN`. If it's still `UP` after well past 10 minutes, tell me — it means Prometheus's own metrics scrape is keeping it alive, and we'll need a different fix.
+It should show `DOWN`.

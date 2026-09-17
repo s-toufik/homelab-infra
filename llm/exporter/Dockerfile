@@ -1,5 +1,3 @@
-FROM alpine:3.20
-RUN apk add --no-cache curl jq
-COPY poll-running.sh /poll-running.sh
-RUN chmod +x /poll-running.sh
-ENTRYPOINT ["/poll-running.sh"]
+FROM python:3.13-alpine
+COPY poll-running.py /poll-running.py
+ENTRYPOINT ["python3", "/poll-running.py"]
