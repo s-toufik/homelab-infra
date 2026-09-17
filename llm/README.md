@@ -2,14 +2,14 @@
 
 One CPU inference server, [`llama-swap`](https://github.com/mostlygeek/llama-swap), fronting several `llama.cpp` models behind a single **OpenAI-compatible API**. Pick a model by name in the request's `model` field — there's no per-model port.
 
-| Model | Total / active params | Quantization | Availability |
-|---|---|---|---|
-| `granite4-7b` | 7B / 1B | Q4_K_M | always on |
-| `lfm2-8b-a1b` | 8.3B / 1.5B | Q4_K_M | on demand |
-| `gigachat3.1-10b-a1.8b` | 10B / 1.8B | Q4_K_M | on demand |
-| `lfm2-24b-a2b` | 24B / 2.3B | Q4_K_M | on demand |
-| `gemma4-26b-a4b` | 26B / 4B | Q4_K_M | on demand |
-| `qwen3-30b-a3b` | 30.5B / 3.3B | Q4_K_M | on demand |
+| Model | Hugging Face | Total / active params | Quantization | Availability |
+|---|---|---|---|---|
+| `granite4-7b` | [unsloth/granite-4.0-h-tiny-GGUF](https://huggingface.co/unsloth/granite-4.0-h-tiny-GGUF) | 7B / 1B | Q4_K_M | always on |
+| `lfm2-8b-a1b` | [unsloth/LFM2-8B-A1B-GGUF](https://huggingface.co/unsloth/LFM2-8B-A1B-GGUF) | 8.3B / 1.5B | Q4_K_M | on demand |
+| `gigachat3.1-10b-a1.8b` | [ai-sage/GigaChat3.1-10B-A1.8B-GGUF](https://huggingface.co/ai-sage/GigaChat3.1-10B-A1.8B-GGUF) | 10B / 1.8B | Q4_K_M | on demand |
+| `lfm2-24b-a2b` | [LiquidAI/LFM2-24B-A2B-GGUF](https://huggingface.co/LiquidAI/LFM2-24B-A2B-GGUF) | 24B / 2.3B | Q4_K_M | on demand |
+| `gemma4-26b-a4b` | [unsloth/gemma-4-26B-A4B-it-GGUF](https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF) | 26B / 4B | Q4_K_M | on demand |
+| `qwen3-30b-a3b` | [unsloth/Qwen3-30B-A3B-GGUF](https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF) | 30.5B / 3.3B | Q4_K_M | on demand |
 
 `granite4-7b` is always loaded and ready. Requesting any other model loads it (may take a while the first time — see First start) and unloads whichever on-demand model was loaded before; each also unloads on its own after 10 minutes idle. At most one on-demand model is resident at a time, alongside `granite4-7b`.
 
