@@ -46,6 +46,7 @@ services:
     environment:
       LLM_HOST: llm:8080
       POLL_INTERVAL: 15
+      PYTHONUNBUFFERED: "1"
     volumes:
       - llm-sd:/data
     deploy:
