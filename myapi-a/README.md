@@ -1,5 +1,7 @@
 # myapi-a
 
+> Disabled by default — commented out of the `include:` list in the root `compose.yml`. Uncomment it (and `myapi-b`), then `make up-apps` to start them.
+
 Placeholder FastAPI service showing how an app plugs into the observability stack. It is auto-instrumented with `opentelemetry-instrument` and sends **traces, metrics and logs** over OTLP/HTTP to `otel-collector:4318`.
 
 | Endpoint | Behaviour |

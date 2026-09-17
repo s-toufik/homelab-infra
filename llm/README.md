@@ -1,13 +1,16 @@
-# LLM (llama.cpp)
+# LLM (llama-swap)
 
-Two CPU inference servers built on the official `ghcr.io/ggml-org/llama.cpp:server` image. Both expose an **OpenAI-compatible API** with **tool calling**, and **Prometheus metrics**.
+One CPU inference server, [`llama-swap`](https://github.com/mostlygeek/llama-swap), fronting one or more `llama.cpp` models behind a single **OpenAI-compatible API**. Models are no longer split across ports — pick one by name in the request's `model` field.
 
-| Service | Model | Quantization | Use for | From containers | From your devices |
-|---|---|---|---|---|---|
-| `llm-large` | Qwen3-8B (`qwen3-8b`) | Q4_K_M (~5 GB) | Better answers, multi-step tool use | `http://llm-large:8080/v1` | `http://<BIND_ADDR>:8090/v1` |
-| `llm-small` | Qwen3.5-2B (`qwen3.5-2b`) | Q8_0 (~2 GB) | Fast replies, routing, simple tool calls | `http://llm-small:8080/v1` | `http://<BIND_ADDR>:8091/v1` |
+| Model | Quantization | Use for |
+|---|---|---|
+| `granite4-7b` | Q4_K_M (~5 GB) | Better answers, multi-step tool use |
+| `qwen3.5-2b` | Q8_0 (~2 GB) | Fast replies, routing, simple tool calls |
 
-Both run with **thinking disabled** (`enable_thinking: false`), so answers are short and start immediately.
+Both models are `always-on` (see `groups` in [`config.yml`](config.yml)) — llama-swap keeps them loaded simultaneously rather than swapping one out to load the other. Both run with **thinking disabled** (`enable_thinking: false`), so answers are short and start immediately.
+
+- From containers: `http://llm:8080/v1`
+- From your devices: `http://<BIND_ADDR>:8090/v1`
 
 ## First start
 
@@ -15,47 +18,54 @@ Models download from Hugging Face on first start into the `homelab_llm-models` v
 
 ```bash
 make up-llm
-make llm-logs          # watch the download, Ctrl+C when "server is listening"
+make llm-logs          # watch the download, Ctrl+C when the model is loaded
 make llm-status
 ```
 
 ## Test
 
 ```bash
-make llm-ask                              # large model
-make llm-ask M=small Q="Explain KRaft in one sentence"
-make llm-tools                            # checks both models produce a tool call
+make llm-ask                                          # granite4-7b
+make llm-ask M=qwen3.5-2b Q="Explain KRaft in one sentence"
+make llm-tools                                         # checks every model produces a tool call
 ```
 
 ## Use from code
 
 ```python
 from openai import OpenAI
-client = OpenAI(base_url="http://llm-large:8080/v1", api_key="not-needed")
-resp = client.chat.completions.create(model="qwen3-8b", messages=[{"role": "user", "content": "Hi"}], tools=[...])
+client = OpenAI(base_url="http://llm:8080/v1", api_key="not-needed")
+resp = client.chat.completions.create(model="granite4-7b", messages=[{"role": "user", "content": "Hi"}], tools=[...])
 ```
 
 ## Change a model
 
-Edit `.env`, for example:
+Edit `models` in [`config.yml`](config.yml), for example:
 
-```bash
-LLM_LARGE_MODEL=unsloth/Qwen3.5-9B-GGUF:Q4_K_M
-LLM_LARGE_ALIAS=qwen3.5-9b
+```yaml
+models:
+  granite4-7b:
+    cmd: |
+      /app/llama-server ${common}
+      -hf unsloth/Qwen3.5-9B-GGUF:Q4_K_M
+      --ctx-size 8192 --parallel 1 --threads 6
+    aliases: [granite4-7b]
+    ttl: 0
 ```
 
-then `make recreate S=llm-large`. Any GGUF on Hugging Face works with `-hf <repo>:<quant>`. For a Qwen3.5 model, add `--no-mmproj` to its command in `compose.yml` unless you need image input.
+then `make recreate S=llm` (llama-swap also hot-reloads `config.yml` on change since compose passes `-watch-config`, so a recreate isn't always necessary). Any GGUF on Hugging Face works with `-hf <repo>:<quant>`. For a Qwen3.5 model, add `--no-mmproj` unless you need image input.
 
 ## Tuning
 
-| Variable | Default | Effect |
+| Setting | Where | Effect |
 |---|---|---|
-| `LLM_*_THREADS` | 6 / 4 | CPU threads. Keep the sum at or below the 10 physical cores |
-| `LLM_*_CTX` | 8192 | Context window in tokens. Higher = more RAM |
-| `--parallel` in compose | 1 / 2 | Simultaneous requests. Context is split between them |
+| `--threads` | each model's `cmd` in `config.yml` | CPU threads. Keep the sum of always-on models at or below the 10 physical cores |
+| `--ctx-size` | each model's `cmd` in `config.yml` | Context window in tokens. Higher = more RAM |
+| `--parallel` | each model's `cmd` in `config.yml` | Simultaneous requests. Context is split between them |
+| `deploy.resources.limits` | `compose.yml` | Container-wide CPU/memory cap — must cover the sum of always-on models + headroom |
 
-The memory limits (8 GB / 4 GB) include the model and its context. If a container is OOM-killed, lower `CTX` or raise its limit.
+If the container is OOM-killed, lower a model's `--ctx-size` or raise the container's memory limit.
 
 ## Metrics
 
-Prometheus scrapes `/metrics` on both servers (job `llama-cpp`). Grafana dashboard: **Homelab → LLM (llama.cpp)**.
+Prometheus scrapes each model's metrics through llama-swap's per-model proxy path, `/upstream/<model>/metrics` (job `llama-cpp` in `prometheus/prometheus.yml`). Grafana dashboard: **Homelab → LLM (llama.cpp)**.

@@ -14,10 +14,6 @@ COMPOSE  := set -a; [ -f $(ENV_FILE) ] && . ./$(ENV_FILE); set +a; docker compos
 # Address the published ports listen on (BIND_ADDR from .env, e.g. your Tailscale IP)
 HOST := $(shell [ -f .env ] && . ./.env; echo "$${BIND_ADDR:-127.0.0.1}")
 
-# Published ports of the llama.cpp servers (from .env)
-LLM_LARGE_PORT := $(shell [ -f .env ] && . ./.env; echo "$${LLM_LARGE_PORT:-8090}")
-LLM_SMALL_PORT := $(shell [ -f .env ] && . ./.env; echo "$${LLM_SMALL_PORT:-8091}")
-
 # Optional service selection
 S ?=
 TAIL ?= 200
@@ -27,7 +23,6 @@ OBS   := prometheus loki tempo otel-collector alloy grafana
 KAFKA := kafka kafka-ui kafka-exporter
 DB    := postgres mongodb
 APPS  := myapi-a myapi-b
-LLM_SERVICES := llm-large llm-small
 
 BACKUP_DIR := backups
 DATE := $(shell date +%F_%H%M)
@@ -108,8 +103,8 @@ up-db: check-env ## Start PostgreSQL and MongoDB
 	@$(COMPOSE) up -d $(DB)
 up-apps: check-env ## Build & start myapi-a and myapi-b
 	@$(COMPOSE) up -d --build $(APPS)
-up-llm: check-env ## Start the llama.cpp servers (llm-large, llm-small)
-	@$(COMPOSE) up -d $(LLM_SERVICES)
+up-llm: check-env ## Start the LLM server (llama-swap)
+	@$(COMPOSE) up -d llm
 
 .PHONY: down-apps
 down-apps: check-env ## Stop only the apps
@@ -140,8 +135,7 @@ HEALTH_URLS := \
   'kafka-exporter|http://$(HOST):9308/metrics' \
   'myapi-a|http://$(HOST):8001/health' \
   'myapi-b|http://$(HOST):8002/health' \
-  'llm-large|http://$(HOST):$(LLM_LARGE_PORT)/health' \
-  'llm-small|http://$(HOST):$(LLM_SMALL_PORT)/health'
+  'llm|http://$(HOST):8090/health'
 
 .PHONY: health
 health: ## Quick HTTP health checks of main endpoints
@@ -223,41 +217,40 @@ traffic: ## Generate demo traces: make traffic [N=200 FANOUT=5]
 	@for i in $$(seq 1 $(N)); do curl -fs -o /dev/null "http://$(HOST):8002/chain?fanout=$(FANOUT)" || true; done
 	@echo "Done — open Grafana → Explore → Tempo"
 
-##@ LLM (llama.cpp)
+##@ LLM (llama-swap)
 
-# M = which model for llm-ask / llm-logs: large or small
-M ?= large
+# M = model name for llm-ask (see llm/config.yml for the names llama-swap serves)
+M ?= granite4-7b
 Q ?= What is Apache Kafka? Answer in two sentences.
-LLM_PORT = $(if $(filter small,$(M)),$(LLM_SMALL_PORT),$(LLM_LARGE_PORT))
+LLM_PORT := 8090
 
 .PHONY: llm-down
-llm-down: check-env ## Stop the llama.cpp servers (frees their RAM)
-	@$(COMPOSE) stop $(LLM_SERVICES)
+llm-down: check-env ## Stop the LLM server (frees the RAM of always-on models)
+	@$(COMPOSE) stop llm
 
 .PHONY: llm-status
-llm-status: ## Health and model of each llama.cpp server
-	@for entry in large:$(LLM_LARGE_PORT) small:$(LLM_SMALL_PORT); do \
-	  name=$${entry%%:*}; port=$${entry##*:}; \
-	  if curl -fsS -o /dev/null --max-time 3 "http://$(HOST):$$port/health"; then \
-	    model=$$(curl -fsS --max-time 3 "http://$(HOST):$$port/v1/models" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"][0]["id"])'); \
-	    printf "  \033[32m✓\033[0m llm-%-6s :%s  %s\n" "$$name" "$$port" "$$model"; \
-	  else \
-	    printf "  \033[31m✗\033[0m llm-%-6s :%s  not ready (downloading, loading or stopped)\n" "$$name" "$$port"; \
-	  fi; \
-	done
+llm-status: ## Health check and list of models served by llama-swap
+	@if curl -fsS -o /dev/null --max-time 3 "http://$(HOST):$(LLM_PORT)/health"; then \
+	  printf "  \033[32m✓\033[0m llm  :%s\n" "$(LLM_PORT)"; \
+	  curl -fsS --max-time 3 "http://$(HOST):$(LLM_PORT)/v1/models" | \
+	    python3 -c 'import sys,json; [print("      -", m["id"]) for m in json.load(sys.stdin)["data"]]'; \
+	else \
+	  printf "  \033[31m✗\033[0m llm  :%s  not ready (downloading, loading or stopped)\n" "$(LLM_PORT)"; \
+	fi
 
 .PHONY: llm-logs
-llm-logs: check-env ## Follow llama.cpp logs (both, or M=large|small)
-	@$(COMPOSE) logs -f --tail=$(TAIL) $(if $(filter command line,$(origin M)),llm-$(M),$(LLM_SERVICES))
+llm-logs: check-env ## Follow llama-swap logs
+	@$(COMPOSE) logs -f --tail=$(TAIL) llm
 
 .PHONY: llm-ask
-llm-ask: ## Ask a question: make llm-ask [M=large|small] [Q="..."]
-	@python3 llm/test.py ask "http://$(HOST):$(LLM_PORT)" "$(Q)"
+llm-ask: ## Ask a question: make llm-ask [M=granite4-7b|qwen3.5-2b] [Q="..."]
+	@python3 llm/test.py ask "http://$(HOST):$(LLM_PORT)" "$(M)" "$(Q)"
 
 .PHONY: llm-tools
-llm-tools: ## Check both models produce a tool call
-	@echo "── llm-large ──"; python3 llm/test.py tools "http://$(HOST):$(LLM_LARGE_PORT)" || true
-	@echo; echo "── llm-small ──"; python3 llm/test.py tools "http://$(HOST):$(LLM_SMALL_PORT)" || true
+llm-tools: ## Check every model produces a tool call
+	@for m in granite4-7b qwen3.5-2b; do \
+	  echo "── $$m ──"; python3 llm/test.py tools "http://$(HOST):$(LLM_PORT)" "$$m" || true; echo; \
+	done
 
 ##@ Backup
 

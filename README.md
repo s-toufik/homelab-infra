@@ -1,7 +1,9 @@
 # homelab-infra
 
 Docker Compose stack for a single home-lab server (10 physical cores, 32 GiB RAM, 1 TB disk, no GPU):
-a full **LGTM observability stack** (Loki, Grafana, Tempo, Prometheus) fed by **OpenTelemetry** and **Grafana Alloy**, plus **Kafka**, **PostgreSQL**, **MongoDB** and two demo APIs wired end-to-end.
+a full **LGTM observability stack** (Loki, Grafana, Tempo, Prometheus) fed by **OpenTelemetry** and **Grafana Alloy**, plus **Kafka**, **PostgreSQL**, **MongoDB**, a local **LLM** server (llama-swap) and two demo APIs wired end-to-end.
+
+`myapi-a`/`myapi-b` are commented out of the `include:` list in the root `compose.yml` by default — uncomment them there to enable the demo apps (and `make up-apps`).
 
 ## Architecture
 
@@ -14,8 +16,9 @@ flowchart LR
   OC -->|traces| T[Tempo]
   OC -->|metrics| P[Prometheus]
   OC -->|logs| L[Loki]
-  AL[Alloy] -->|host + container metrics| P
+  AL[Alloy] -->|host metrics| P
   AL -->|docker logs| L
+  CA[cadvisor] -->|scrape| P
   T -->|span metrics / service graph| P
   P -->|scrape| KE[kafka-exporter] --> K[Kafka]
   KU[kafka-ui] --> K
@@ -26,10 +29,11 @@ flowchart LR
 |--------|------|
 | App traces / metrics / logs | app → `otel-collector` (OTLP) → Tempo / Prometheus / Loki |
 | Host metrics (CPU, RAM, disk, net) | Alloy `prometheus.exporter.unix` → Prometheus remote-write |
-| Container metrics | Alloy embedded cAdvisor → Prometheus |
+| Container metrics | standalone `cadvisor` container → Prometheus scrape (see [`cadvisor/README.md`](cadvisor/README.md) for why it's not Alloy's embedded exporter) |
 | Container stdout logs | Alloy `loki.source.docker` → Loki (apps labelled `homelab.logs.otlp=true` are skipped to avoid duplicates) |
 | Kafka lag / throughput | `kafka-exporter` ← Prometheus scrape |
 | Service graph, RED metrics | Tempo metrics-generator → Prometheus |
+| LLM (llama-swap) metrics | Prometheus scrapes `llm:8080/upstream/<model>/metrics` per model |
 
 Grafana is provisioned with the three datasources already cross-linked (logs ↔ traces ↔ metrics via `trace_id` and exemplars) and a **Homelab Overview** dashboard set as home page.
 
@@ -63,11 +67,12 @@ make ps / make health / make stats         # status, HTTP checks, CPU/RAM
 make logs S=kafka                          # follow one service (TAIL=500 for more history)
 make restart S="grafana tempo"
 make recreate S=otel-collector             # after editing a config file
-make up-obs / up-kafka / up-db / up-apps   # start one group only
+make up-obs / up-kafka / up-db / up-apps / up-llm  # start one group only
 make sh S=kafka / make psql / make mongosh
 make topics / topic-create TOPIC=demo / consume TOPIC=demo / groups
 make reload-prometheus / reload-alloy      # hot reload, no restart
 make traffic N=500 FANOUT=5                # demo traces
+make llm-status / llm-ask M=granite4-7b Q="..." / llm-tools   # LLM (see llm/README.md)
 make backup                                # Postgres + Mongo into ./backups
 make restore-postgres FILE=backups/x.dump
 make update                                # pull new images, then up
@@ -99,11 +104,12 @@ All ports bind to `BIND_ADDR` (`0.0.0.0` = LAN, `127.0.0.1` = local only).
 | OTel Collector | 4317 / 4318 / 13133 | OTLP gRPC / HTTP / health |
 | Alloy | 12345 | pipeline UI |
 | Kafka | 9094 | external listener; containers use `kafka:9092` |
-| Kafka UI | 8080 | **no auth** |
+| Kafka UI | 8080 | login form, credentials from `.env` (`KAFKA_UI_USER`/`KAFKA_UI_PASSWORD`) |
 | kafka-exporter | 9308 | `/metrics` |
 | PostgreSQL | 5432 | |
 | MongoDB | 27017 | |
-| myapi-a / myapi-b | 8001 / 8002 | `/docs` |
+| LLM (llama-swap) | 8090 | OpenAI-compatible `/v1`, model selected by name — see [`llm/README.md`](llm/README.md) |
+| myapi-a / myapi-b | 8001 / 8002 | `/docs`, disabled by default (see above) |
 
 ## Resource budget
 
@@ -111,6 +117,7 @@ Memory limits are sized to leave ~10 GiB to the OS page cache (which Kafka, Post
 
 | Service | Memory limit | CPU cap |
 |---------|-------------:|--------:|
+| LLM (llama-swap, both always-on models) | 12 GiB | 10 |
 | PostgreSQL | 4 GiB | 2 |
 | Prometheus | 3 GiB | 2 |
 | Loki | 3 GiB | 2 |
@@ -119,8 +126,11 @@ Memory limits are sized to leave ~10 GiB to the OS page cache (which Kafka, Post
 | Kafka | 2 GiB (1 GiB heap) | 2 |
 | Kafka UI, Grafana, Alloy | 768 MiB each | 1 |
 | OTel Collector, each API | 512 MiB each | 1 |
+| cadvisor | 384 MiB | 1 |
 | kafka-exporter | 128 MiB | 0.5 |
-| **Total** | **~22 GiB** | |
+| **Total** | **~34 GiB** | |
+
+These are caps, not reservations, but the total now exceeds the host's 32 GiB RAM — fine as long as containers don't all hit their ceiling at once, but worth lowering the LLM group's `--ctx-size`/model set or another service's limit if you see OOM kills.
 
 ## Retention (disk)
 
@@ -150,7 +160,7 @@ Add its folder with a `compose.yml` and list it under `include:` in the root `co
 
 ## Security notes
 
-This is a trusted-LAN setup: Kafka, Loki, Tempo and Prometheus have no authentication. Before exposing anything beyond the LAN, set `BIND_ADDR=127.0.0.1` and put a reverse proxy with TLS + auth (Traefik, Caddy) in front. Alloy runs `privileged` with the Docker socket mounted (required for cAdvisor and log discovery).
+This is a trusted-LAN setup: Kafka, Loki, Tempo and Prometheus have no authentication. Before exposing anything beyond the LAN, set `BIND_ADDR=127.0.0.1` and put a reverse proxy with TLS + auth (Traefik, Caddy) in front. Alloy mounts the Docker socket read-only (needed for log discovery); `cadvisor` runs `privileged` with `cgroup: host` (needed to read per-container cgroup stats).
 
 ## Upgrading
 

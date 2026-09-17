@@ -1,6 +1,6 @@
 # MongoDB
 
-MongoDB 8.0 standalone with root authentication. WiredTiger cache is capped at 1 GiB so it doesn't compete with the rest of the stack (the default is 50% of RAM minus 1 GiB, i.e. it would believe it can use ~15 GiB).
+MongoDB standalone with root authentication (version pinned via `MONGO_TAG` in `.env`, currently `7.0`). WiredTiger cache is capped at 1 GiB so it doesn't compete with the rest of the stack (the default is 50% of RAM minus 1 GiB, i.e. it would believe it can use ~15 GiB).
 
 - Host access: `mongosh "mongodb://$MONGO_ROOT_USER:$MONGO_ROOT_PASSWORD@<server>:27017/?authSource=admin"`
 - From containers: `mongodb://$MONGO_ROOT_USER:$MONGO_ROOT_PASSWORD@mongodb:27017/?authSource=admin`

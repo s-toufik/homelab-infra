@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Quick tests for the llama.cpp servers.
+"""Quick tests for the LLM server (llama-swap, one endpoint, models selected by name).
 
-  python3 llm/test.py ask   <base_url> "question"
-  python3 llm/test.py tools <base_url>
+  python3 llm/test.py ask   <base_url> <model> "question"
+  python3 llm/test.py tools <base_url> <model>
 """
 import json
 import sys
@@ -18,11 +18,6 @@ def post(base, payload):
         return json.load(r), time.time() - start
 
 
-def model_id(base):
-    with urllib.request.urlopen(f"{base}/v1/models", timeout=10) as r:
-        return json.load(r)["data"][0]["id"]
-
-
 def stats(resp, elapsed):
     u = resp.get("usage", {})
     t = resp.get("timings", {})
@@ -31,15 +26,15 @@ def stats(resp, elapsed):
           f"{elapsed:.1f}s, generation {speed}]")
 
 
-def ask(base, question):
-    resp, elapsed = post(base, {"model": model_id(base),
+def ask(base, model, question):
+    resp, elapsed = post(base, {"model": model,
                                 "messages": [{"role": "system", "content": "Answer briefly."},
                                              {"role": "user", "content": question}]})
     print(resp["choices"][0]["message"]["content"])
     stats(resp, elapsed)
 
 
-def tools(base):
+def tools(base, model):
     tool = {"type": "function", "function": {
         "name": "get_weather",
         "description": "Get the current weather for a city",
@@ -47,7 +42,7 @@ def tools(base):
                        "properties": {"city": {"type": "string"},
                                       "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}},
                        "required": ["city"]}}}
-    resp, elapsed = post(base, {"model": model_id(base), "tools": [tool], "tool_choice": "auto",
+    resp, elapsed = post(base, {"model": model, "tools": [tool], "tool_choice": "auto",
                                 "messages": [{"role": "user", "content": "What's the weather in Paris in celsius?"}]})
     msg = resp["choices"][0]["message"]
     calls = msg.get("tool_calls") or []
@@ -61,10 +56,10 @@ def tools(base):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] not in ("ask", "tools"):
+    if len(sys.argv) < 4 or sys.argv[1] not in ("ask", "tools"):
         print(__doc__)
         sys.exit(2)
     if sys.argv[1] == "ask":
-        ask(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "What is Apache Kafka?")
+        ask(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else "What is Apache Kafka?")
     else:
-        tools(sys.argv[2])
+        tools(sys.argv[2], sys.argv[3])
