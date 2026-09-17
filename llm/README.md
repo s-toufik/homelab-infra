@@ -71,7 +71,7 @@ Adding or swapping an on-demand model just means adding it to the `on-demand` gr
 | `--threads` | each model's `cmd` in `config.yml` | CPU threads while that model is active. `granite4-7b` gets 6 (always resident), on-demand models get 10 (only one runs at a time, alongside granite) |
 | `--ctx-size` | each model's `cmd` in `config.yml` | Context window in tokens. Higher = more RAM |
 | `--parallel` | each model's `cmd` in `config.yml` | Simultaneous requests. Context is split between them |
-| `ttl` | each model's entry in `config.yml` | Seconds idle before auto-unload. `0` = never (`granite4-7b`); `600` = 10 min (all on-demand models) |
+| `ttl` (`&ondemand_ttl` anchor) | each model's entry in `config.yml` | Seconds idle before auto-unload. `0` = never (`granite4-7b`); `300` = 5 min (all on-demand models, edit the `&ondemand_ttl` line once to change all of them). Actual time to free the RAM is **2×** this — see Metrics below |
 | `deploy.resources.limits` | `compose.yml` | Container-wide CPU/memory cap — must cover `granite4-7b` + the single largest on-demand model, not the sum of all of them |
 
 If the container is OOM-killed, lower the active on-demand model's `--ctx-size` first — the largest one (`qwen3-30b-a3b`, ~18.6 GiB at Q4_K_M) plus `granite4-7b` puts you close to a 32 GiB host's ceiling already.
@@ -79,13 +79,13 @@ If the container is OOM-killed, lower the active on-demand model's `--ctx-size` 
 ## Metrics
 
 - `granite4-7b`: full generation-speed / tokens-per-minute panels, always populated.
-- On-demand models: the same panels populate **for up to `ttl` seconds (10 min) after each load**, then go quiet even if the model happens to still be up — this is intentional (see `exporter/poll-running.py`), not a bug: continuously monitoring an on-demand model would otherwise reset its own idle timer and prevent it from ever unloading.
+- On-demand models: the same panels populate **for up to `ttl` seconds (5 min) after each load**, then go quiet even if the model happens to still be up — this is intentional (see `exporter/poll-running.py`), not a bug: continuously monitoring an on-demand model would otherwise reset its own idle timer and prevent it from ever unloading. Because monitoring itself resets that timer once more right before it stops, the model actually frees its RAM roughly **2× `ttl`** after being loaded (~10 min total with the current `300`), not at the `ttl` mark itself.
 
 Grafana dashboard: **Homelab → LLM (llama.cpp)**.
 
-### Verify an on-demand model still unloads after its `ttl`
+### Verify an on-demand model still unloads
 
-Load one (e.g. `make llm-ask M=qwen3-30b-a3b`), then leave it idle for longer than its `ttl` (10 min) without sending it any more requests:
+Load one (e.g. `make llm-ask M=qwen3-30b-a3b`), then leave it idle for **2× its `ttl`** (~10 min total) without sending it any more requests:
 
 ```bash
 make llm-running

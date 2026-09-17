@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Polls llama-swap's safe /running endpoint (no auto-load side effect) and writes a
-Prometheus file_sd target list. A model is only listed while its own ttl (from /running)
-hasn't elapsed since we first saw it "ready" this load cycle -- otherwise our own metrics
-scrape would keep resetting its idle timer forever (confirmed: llama-swap counts any
-/upstream/<model>/... request, including a metrics GET, as activity, and ignorePaths only
-stops it from triggering a *load*, not from resetting ttl on an already-loaded model)."""
+
 import json
 import os
 import time

@@ -26,7 +26,7 @@ models:
       -hf unsloth/LFM2-8B-A1B-GGUF:Q4_K_M
       --ctx-size 32768 --parallel 1 --threads 10
     aliases: [lfm2-8b-a1b]
-    ttl: 600
+    ttl: &ondemand_ttl 300
 
   gigachat3.1-10b-a1.8b:
     cmd: |
@@ -34,7 +34,7 @@ models:
       -hf ai-sage/GigaChat3.1-10B-A1.8B-GGUF:Q4_K_M
       --ctx-size 32768 --parallel 1 --threads 10
     aliases: [gigachat3.1-10b-a1.8b]
-    ttl: 600
+    ttl: *ondemand_ttl
 
   lfm2-24b-a2b:
     cmd: |
@@ -42,7 +42,7 @@ models:
       -hf LiquidAI/LFM2-24B-A2B-GGUF:Q4_K_M
       --ctx-size 32768 --parallel 1 --threads 10
     aliases: [lfm2-24b-a2b]
-    ttl: 600
+    ttl: *ondemand_ttl
 
   gemma4-26b-a4b:
     cmd: |
@@ -50,7 +50,7 @@ models:
       -hf unsloth/gemma-4-26B-A4B-it-GGUF:UD-Q4_K_M
       --ctx-size 32768 --parallel 1 --threads 10
     aliases: [gemma4-26b-a4b]
-    ttl: 600
+    ttl: *ondemand_ttl
 
   qwen3-30b-a3b:
     cmd: |
@@ -58,7 +58,7 @@ models:
       -hf unsloth/Qwen3-30B-A3B-GGUF:Q4_K_M
       --ctx-size 32768 --parallel 1 --threads 10
     aliases: [qwen3-30b-a3b]
-    ttl: 600
+    ttl: *ondemand_ttl
 
 groups:
   always-on:
