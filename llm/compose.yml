@@ -19,7 +19,7 @@ services:
     command: ["-config", "/app/config.yaml", "-listen", ":8080", "-watch-config"]
     volumes:
       - llm-models:/models
-      - ./config.yml:/app/config.yaml:ro   # relative to llm/, not the root
+      - ./config.yml:/app/config.yaml:ro
     ports:
       - "${BIND_ADDR:-127.0.0.1}:8090:8080"
     healthcheck:
@@ -30,7 +30,7 @@ services:
       start_period: 1m
     deploy:
       resources:
-        limits: { cpus: "10.0", memory: 12g }
+        limits: { cpus: "16.0", memory: 26g }   # granite4-7b (always-on) + one on-demand model at a time
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }

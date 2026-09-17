@@ -72,7 +72,7 @@ make sh S=kafka / make psql / make mongosh
 make topics / topic-create TOPIC=demo / consume TOPIC=demo / groups
 make reload-prometheus / reload-alloy      # hot reload, no restart
 make traffic N=500 FANOUT=5                # demo traces
-make llm-status / llm-ask M=granite4-7b Q="..." / llm-tools   # LLM (see llm/README.md)
+make llm-status / llm-ask M=granite4-7b Q="..."   # LLM (see llm/README.md)
 make backup                                # Postgres + Mongo into ./backups
 make restore-postgres FILE=backups/x.dump
 make update                                # pull new images, then up
@@ -117,7 +117,7 @@ Memory limits are sized to leave ~10 GiB to the OS page cache (which Kafka, Post
 
 | Service | Memory limit | CPU cap |
 |---------|-------------:|--------:|
-| LLM (llama-swap, both always-on models) | 12 GiB | 10 |
+| LLM (llama-swap: `granite4-7b` always-on + one on-demand model at a time) | 26 GiB | 16 |
 | PostgreSQL | 4 GiB | 2 |
 | Prometheus | 3 GiB | 2 |
 | Loki | 3 GiB | 2 |
@@ -128,9 +128,9 @@ Memory limits are sized to leave ~10 GiB to the OS page cache (which Kafka, Post
 | OTel Collector, each API | 512 MiB each | 1 |
 | cadvisor | 384 MiB | 1 |
 | kafka-exporter | 128 MiB | 0.5 |
-| **Total** | **~34 GiB** | |
+| **Total (caps)** | **~48 GiB** | |
 
-These are caps, not reservations, but the total now exceeds the host's 32 GiB RAM — fine as long as containers don't all hit their ceiling at once, but worth lowering the LLM group's `--ctx-size`/model set or another service's limit if you see OOM kills.
+These are ceilings, not reservations, and the LLM one is deliberately generous — the `on-demand` model group in [`llm/config.yml`](llm/config.yml) only ever keeps **one** of its members loaded at a time (`swap: true`), so real peak usage is `granite4-7b` (~5 GiB) + whichever on-demand model is active (up to ~19 GiB for the largest, `qwen3-30b-a3b`) + the rest of the stack — realistically close to the host's actual 31 GiB RAM, not the full 48 GiB sum. If you see OOM kills, lower the active on-demand model's `--ctx-size` in `llm/config.yml` before touching another service's limit.
 
 ## Retention (disk)
 

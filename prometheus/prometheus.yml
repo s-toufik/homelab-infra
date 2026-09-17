@@ -58,5 +58,21 @@ scrape_configs:
           __metrics_path__: /upstream/granite4-7b/metrics
       - targets: [ "llm:8080" ]
         labels:
-          model: qwen3.5-2b
-          __metrics_path__: /upstream/qwen3.5-2b/metrics
+          model: lfm2-8b-a1b
+          __metrics_path__: /upstream/lfm2-8b-a1b/metrics
+      - targets: [ "llm:8080" ]
+        labels:
+          model: gigachat3.1-10b-a1.8b
+          __metrics_path__: /upstream/gigachat3.1-10b-a1.8b/metrics
+      - targets: [ "llm:8080" ]
+        labels:
+          model: lfm2-24b-a2b
+          __metrics_path__: /upstream/lfm2-24b-a2b/metrics
+      - targets: [ "llm:8080" ]
+        labels:
+          model: gemma4-26b-a4b
+          __metrics_path__: /upstream/gemma4-26b-a4b/metrics
+      - targets: [ "llm:8080" ]
+        labels:
+          model: qwen3-30b-a3b
+          __metrics_path__: /upstream/qwen3-30b-a3b/metrics

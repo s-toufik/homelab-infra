@@ -243,14 +243,8 @@ llm-logs: check-env ## Follow llama-swap logs
 	@$(COMPOSE) logs -f --tail=$(TAIL) llm
 
 .PHONY: llm-ask
-llm-ask: ## Ask a question: make llm-ask [M=granite4-7b|qwen3.5-2b] [Q="..."]
+llm-ask: ## Ask a question: make llm-ask [M=<model>] [Q="..."] — see llm/config.yml for model names
 	@python3 llm/test.py ask "http://$(HOST):$(LLM_PORT)" "$(M)" "$(Q)"
-
-.PHONY: llm-tools
-llm-tools: ## Check every model produces a tool call
-	@for m in granite4-7b qwen3.5-2b; do \
-	  echo "── $$m ──"; python3 llm/test.py tools "http://$(HOST):$(LLM_PORT)" "$$m" || true; echo; \
-	done
 
 ##@ Backup
 

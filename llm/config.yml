@@ -16,20 +16,58 @@ models:
     aliases: [granite4-7b]
     ttl: 0
 
-  qwen3.5-2b:
+  lfm2-8b-a1b:
     cmd: |
       /app/llama-server ${common}
-      -hf unsloth/Qwen3.5-2B-GGUF:Q8_0 --no-mmproj
-      --ctx-size 8192 --parallel 2 --threads 4
-    aliases: [qwen3.5-2b]
-    ttl: 0
+      -hf unsloth/LFM2-8B-A1B-GGUF:Q4_K_M
+      --ctx-size 32768 --parallel 1 --threads 10
+    aliases: [lfm2-8b-a1b]
+    ttl: 600
+
+  gigachat3.1-10b-a1.8b:
+    cmd: |
+      /app/llama-server ${common}
+      -hf ai-sage/GigaChat3.1-10B-A1.8B-GGUF:Q4_K_M
+      --ctx-size 32768 --parallel 1 --threads 10
+    aliases: [gigachat3.1-10b-a1.8b]
+    ttl: 600
+
+  lfm2-24b-a2b:
+    cmd: |
+      /app/llama-server ${common}
+      -hf LiquidAI/LFM2-24B-A2B-GGUF:Q4_K_M
+      --ctx-size 32768 --parallel 1 --threads 10
+    aliases: [lfm2-24b-a2b]
+    ttl: 600
+
+  gemma4-26b-a4b:
+    cmd: |
+      /app/llama-server ${common}
+      -hf unsloth/gemma-4-26B-A4B-it-GGUF:UD-Q4_K_M
+      --ctx-size 32768 --parallel 1 --threads 10
+    aliases: [gemma4-26b-a4b]
+    ttl: 600
+
+  qwen3-30b-a3b:
+    cmd: |
+      /app/llama-server ${common}
+      -hf unsloth/Qwen3-30B-A3B-GGUF:Q4_K_M
+      --ctx-size 32768 --parallel 1 --threads 10
+    aliases: [qwen3-30b-a3b]
+    ttl: 600
 
 groups:
   always-on:
     swap: false
     exclusive: false
     persistent: true
-    members: [granite4-7b, qwen3.5-2b]
+    members: [granite4-7b]
+
+  on-demand:
+    swap: true
+    exclusive: false
+    persistent: false
+    members: [lfm2-8b-a1b, gigachat3.1-10b-a1.8b, lfm2-24b-a2b, gemma4-26b-a4b, qwen3-30b-a3b]
 
 hooks:
   on_startup:
