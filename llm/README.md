@@ -82,3 +82,13 @@ If the container is OOM-killed, lower the active on-demand model's `--ctx-size` 
 - On-demand models: the same panels populate automatically **while that model is loaded**, and go quiet once it unloads — nothing to configure per model.
 
 Grafana dashboard: **Homelab → LLM (llama.cpp)**.
+
+### Verify an on-demand model still unloads after its `ttl`
+
+Load one (e.g. `make llm-ask M=qwen3-30b-a3b`), then leave it idle for longer than its `ttl` (10 min) without sending it any more requests:
+
+```bash
+make llm-running
+```
+
+It should show `DOWN`. If it's still `UP` after well past 10 minutes, tell me — it means Prometheus's own metrics scrape is keeping it alive, and we'll need a different fix.

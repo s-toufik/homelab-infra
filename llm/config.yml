@@ -1,6 +1,10 @@
 healthCheckTimeout: 900
 logLevel: info
 
+upstream:
+  ignorePaths:
+    - '.*/metrics$'
+
 macros:
   common: >
     --host 127.0.0.1 --port ${PORT}
