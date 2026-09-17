@@ -1547,7 +1547,9 @@
   "preload": false,
   "refresh": "30s",
   "schemaVersion": 41,
-  "tags": [],
+  "tags": [
+    "homelab"
+  ],
   "templating": {
     "list": []
   },
@@ -1557,7 +1559,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Homelab Overview Copy",
-  "uid": "f99a03c7-7e4a-444e-871c-b0e93a71b7cf",
-  "version": 2
+  "title": "Homelab Overview",
+  "uid": "homelab-overview",
+  "version": 6
 }
