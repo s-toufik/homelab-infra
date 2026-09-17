@@ -723,7 +723,7 @@
         "reduceOptions": {
           "calcs": ["lastNotNull"],
           "fields": "",
-          "values": true
+          "values": false
         },
         "showUnfilled": true,
         "sizing": "auto",
@@ -782,7 +782,7 @@
         "reduceOptions": {
           "calcs": ["lastNotNull"],
           "fields": "",
-          "values": true
+          "values": false
         },
         "showUnfilled": true,
         "sizing": "auto",
@@ -793,7 +793,7 @@
         {
           "editorMode": "code",
           "expr": "node_hwmon_temp_celsius * on(chip, sensor) group_left(label) node_hwmon_sensor_label{label=~\"Core.*\"}",
-          "legendFormat": "__auto",
+          "legendFormat": "{{label}}",
           "range": true,
           "refId": "A"
         }
