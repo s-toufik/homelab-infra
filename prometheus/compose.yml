@@ -15,6 +15,7 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
+      - llm-sd:/etc/prometheus/file_sd/llm:ro   # written by llm-sd-exporter (llm/compose.yml)
     ports:
       - "${BIND_ADDR:-127.0.0.1}:9090:9090"
     healthcheck:

@@ -35,5 +35,28 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  # Polls llm:8080/running (safe, no auto-load) and writes a Prometheus file_sd
+  # target list of currently-loaded models — see llm/README.md (Metrics).
+  llm-sd-exporter:
+    build:
+      context: ./exporter
+    container_name: llm-sd-exporter
+    restart: unless-stopped
+    depends_on:
+      llm:
+        condition: service_healthy
+    environment:
+      LLM_HOST: llm:8080
+      POLL_INTERVAL: 15
+    volumes:
+      - llm-sd:/data
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 64m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
 volumes:
   llm-models:
+  llm-sd:

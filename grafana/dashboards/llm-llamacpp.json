@@ -470,6 +470,64 @@
           "mode": "multi"
         }
       }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Currently Loaded Models",
+      "description": "Live state from llama-swap's /running endpoint via the Infinity datasource. A model not listed here is not loaded — this never touches /upstream/, so checking it has no side effects.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "llm-infinity"
+      },
+      "gridPos": { "x": 0, "y": 29, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "llm-infinity"
+          },
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "url": "http://llm:8080/running",
+          "url_options": { "method": "GET" },
+          "root_selector": "running",
+          "columns": [
+            { "selector": "model", "text": "Model", "type": "string" },
+            { "selector": "state", "text": "State", "type": "string" },
+            { "selector": "ttl", "text": "TTL (s)", "type": "number" }
+          ],
+          "parser": "backend"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "State" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "ready": { "text": "UP", "color": "green" },
+                      "starting": { "text": "STARTING", "color": "yellow" }
+                    }
+                  }
+                ]
+              },
+              { "id": "custom.displayMode", "value": "color-background" }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
     }
   ]
 }

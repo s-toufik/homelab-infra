@@ -68,3 +68,13 @@ datasources:
         tags:
           - key: service.name
             value: service
+
+  - name: LLM Live State
+    uid: llm-infinity
+    type: yesoreyeram-infinity-datasource
+    access: proxy
+    editable: false
+    jsonData:
+      datasource_mode: advanced
+      allowedHosts:
+        - http://llm:8080

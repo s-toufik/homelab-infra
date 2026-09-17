@@ -73,4 +73,16 @@ If the container is OOM-killed, lower the active on-demand model's `--ctx-size` 
 
 ## Metrics
 
-Prometheus scrapes each model's metrics through llama-swap's per-model proxy path, `/upstream/<model>/metrics` (job `llama-cpp` in `prometheus/prometheus.yml`) — one static target per model, always present even when that model isn't currently loaded (it'll just show as a failed/`down` scrape until it's loaded). Grafana dashboard: **Homelab → LLM (llama.cpp)**.
+**The problem this section solves:** any request to `/upstream/<model>/...` — including a plain metrics GET — triggers llama-swap's normal auto-load/swap behavior, same as a real chat request. Scraping an on-demand model's `/upstream/<model>/metrics` on a fixed interval would repeatedly force-load it (evicting whatever else was loaded, since the `on-demand` group has `swap: true`), permanently fighting the `ttl: 600` idle-unload this group exists for. So only `granite4-7b` (always-on, never unloaded) can be scraped as a plain static target.
+
+Two independent things were checked and ruled out before landing on the fix below:
+- `llama-swap`'s own aggregate `/metrics` endpoint — confirmed to be **host-level only** (CPU/mem/swap/network), not per-model. A per-model version of this was proposed upstream (`mostlygeek/llama-swap#509`) but that PR was closed, not merged.
+- No config flag exists to mark a model "never auto-load" (the only per-model options are `ttl`, `unloadTimeout`, `aliases`, `env`, `cmdStop`, `useModelName`, `filters`).
+
+**The fix has two parts, one per problem:**
+
+1. **Generation-speed / tokens-per-minute for on-demand models** — `llm-sd-exporter` (see `exporter/`), a small sidecar that polls llama-swap's safe `/running` endpoint every 15s (this endpoint reports live state and, unlike `/upstream/`, never triggers a load) and writes a Prometheus `file_sd` target file listing **only** models it currently sees in the `"ready"` state. Prometheus's `llama-cpp` job (`prometheus/prometheus.yml`) picks this up via `file_sd_configs` — so it only ever scrapes an on-demand model's real `/upstream/<model>/metrics` once the exporter has already confirmed it's loaded. It never causes a load itself, and the target disappears again (scraping stops) the moment the model unloads on its own `ttl`.
+
+2. **Up/down status for all 6 models** — a Grafana panel ("Currently Loaded Models" on this dashboard) using the **Infinity** datasource plugin (`yesoreyeram-infinity-datasource`, installed via `GF_INSTALL_PLUGINS` in `grafana/compose.yml`) to query `llm:8080/running` directly as JSON — no Prometheus involved, so no risk at all. A model not listed in that table is not currently loaded.
+
+Grafana dashboard: **Homelab → LLM (llama.cpp)**.
