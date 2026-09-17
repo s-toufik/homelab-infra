@@ -528,6 +528,39 @@
       "options": {
         "showHeader": true
       }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Generation speed (instant, 1m)",
+      "description": "Same query as \"Generation speed (avg, 5m)\" but with a 1m rate window instead of 5m, so it reacts faster to the current request — llama.cpp only exposes cumulative counters, so this is the shortest stable window (below ~1m the rate() calculation gets noisy relative to the 15s scrape interval), not a true zero-lag instantaneous value.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": { "x": 0, "y": 37, "w": 6, "h": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (model) (rate(llamacpp:tokens_predicted_total[1m])) / sum by (model) (rate(llamacpp:tokens_predicted_seconds_total[1m]))",
+          "legendFormat": "{{model}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "custom": {},
+          "displayName": "${__series.name} tok/s"
+        },
+        "overrides": []
+      }
     }
   ]
 }

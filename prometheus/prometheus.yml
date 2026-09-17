@@ -52,14 +52,10 @@ scrape_configs:
 
   - job_name: llama-cpp
     static_configs:
-      # granite4-7b is always-on, so hitting its /upstream/.../metrics is always safe.
       - targets: [ "llm:8080" ]
         labels:
           model: granite4-7b
           __metrics_path__: /upstream/granite4-7b/metrics
     file_sd_configs:
-      # On-demand models: this file is written by llm-sd-exporter, which only lists a
-      # model here once llm:8080/running has confirmed it's actually loaded — never
-      # scrape an on-demand model via a static target, see llm/README.md (Metrics).
       - files: [ "/etc/prometheus/file_sd/llm/llm-targets.json" ]
         refresh_interval: 15s

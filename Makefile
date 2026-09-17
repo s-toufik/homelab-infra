@@ -238,6 +238,10 @@ llm-status: ## Health check and list of models served by llama-swap
 	  printf "  \033[31m✗\033[0m llm  :%s  not ready (downloading, loading or stopped)\n" "$(LLM_PORT)"; \
 	fi
 
+.PHONY: llm-running
+llm-running: ## Show which models are currently loaded (UP) vs not (DOWN)
+	@python3 llm/test.py running "http://$(HOST):$(LLM_PORT)"
+
 .PHONY: llm-logs
 llm-logs: check-env ## Follow llama-swap logs
 	@$(COMPOSE) logs -f --tail=$(TAIL) llm

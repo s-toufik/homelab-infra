@@ -1,9 +1,5 @@
 #!/bin/sh
-# Polls llama-swap's safe /running endpoint (no auto-load side effect) and writes
-# a Prometheus file_sd target list containing only models currently reported
-# "ready". Prometheus's llama-cpp job picks this file up via file_sd_configs, so
-# it only ever scrapes an on-demand model's real /upstream/<model>/metrics once
-# this poller has already confirmed it's loaded — it never triggers a load itself.
+
 set -eu
 
 LLM_HOST="${LLM_HOST:-llm:8080}"

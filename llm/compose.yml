@@ -30,13 +30,11 @@ services:
       start_period: 1m
     deploy:
       resources:
-        limits: { cpus: "16.0", memory: 26g }   # granite4-7b (always-on) + one on-demand model at a time
+        limits: { cpus: "16.0", memory: 26g }
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
-  # Polls llm:8080/running (safe, no auto-load) and writes a Prometheus file_sd
-  # target list of currently-loaded models — see llm/README.md (Metrics).
   llm-sd-exporter:
     build:
       context: ./exporter
