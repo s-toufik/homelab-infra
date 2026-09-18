@@ -1,18 +1,19 @@
 # homelab-infra
 
 Docker Compose stack for a single home-lab server (10 physical cores, 32 GiB RAM, 1 TB disk, no GPU):
-a full **LGTM observability stack** (Loki, Grafana, Tempo, Prometheus) fed by **OpenTelemetry** and **Grafana Alloy**, plus **Kafka**, **PostgreSQL**, **MongoDB**, a local **LLM** server (llama-swap) and two demo APIs wired end-to-end.
+a full **LGTM observability stack** (Loki, Grafana, Tempo, Prometheus) fed by **OpenTelemetry** and **Grafana Alloy**, plus **Kafka**, **PostgreSQL**, **MongoDB**, a local **LLM** server (llama-swap) and the real applications wired end-to-end.
 
-`myapi-a`/`myapi-b` are commented out of the `include:` list in the root `compose.yml` by default — uncomment them there to enable the demo apps (and `make up-apps`).
+`myapi-a` is kept only as documentation of the app packaging/Dockerfile template (see `myapi-a/README.md`) — it's not part of the `include:` list and never runs.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
   subgraph apps[Applications]
-    B[myapi-b] -->|HTTP| A[myapi-a]
+    TB[agent-toolbox]
+    AG[agent-orchestrator] -->|MCP| TB
   end
-  A & B -->|OTLP| OC[otel-collector]
+  TB & AG -->|OTLP| OC[otel-collector]
   OC -->|traces| T[Tempo]
   OC -->|metrics| P[Prometheus]
   OC -->|logs| L[Loki]
@@ -109,7 +110,8 @@ All ports bind to `BIND_ADDR` (`0.0.0.0` = LAN, `127.0.0.1` = local only).
 | PostgreSQL | 5432 | |
 | MongoDB | 27017 | |
 | LLM (llama-swap) | 8090 | OpenAI-compatible `/v1`, model selected by name — see [`llm/README.md`](llm/README.md) |
-| myapi-a / myapi-b | 8001 / 8002 | `/docs`, disabled by default (see above) |
+| agent-toolbox | 8001 | MCP endpoint + `/agent_toolbox/actuator/health` |
+| agent-orchestrator | 8000 | `POST /api/v1/agent/stream`, `/actuator/health` |
 
 ## Resource budget
 

@@ -7,7 +7,7 @@ services:
     container_name: myapi-a
     restart: unless-stopped
     labels:
-      homelab.logs.otlp: "true"   # Alloy skips stdout logs: they already go to Loki via OTLP
+      homelab.logs.otlp: "true"
     depends_on:
       otel-collector:
         condition: service_started

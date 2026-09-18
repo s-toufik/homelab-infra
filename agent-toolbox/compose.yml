@@ -1,0 +1,36 @@
+services:
+  agent-toolbox:
+    image: toufik142/agent-toolbox:${AGENT_TOOLBOX_TAG:-latest}
+    container_name: agent-toolbox
+    restart: unless-stopped
+    labels:
+      homelab.logs.otlp: "true"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    environment:
+      APP_ENV: deploy
+      DEPLOYMENT_ENVIRONMENT: homelab
+      OTEL_HOST: otel-collector
+      OTEL_PORT: "4317"
+      TOOLBOX_URL: http://agent-toolbox:8001/mcp
+      USER_DB_HOST: /data/sqlite
+      USER_DB_NAME: user
+      SANDBOX_TOOL_ACCESS: "true"
+      SANDBOX_VAULT_DIR: /data/vault
+      TZ: ${TZ:-UTC}
+    volumes:
+      - agent-toolbox-data:/data/sqlite
+      - agent-toolbox-vault:/data/vault
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8001:8001"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  agent-toolbox-data:
+  agent-toolbox-vault:

@@ -21,5 +21,6 @@ include:
   # --- LLM ---
   - llm/compose.yml
   # --- Applications ---
-#  - myapi-a/compose.yml
-# - myapi-b/compose.yml
+  - agent-toolbox/compose.yml
+  - agent-orchestrator/compose.yml
+  # myapi-a is documentation only (see myapi-a/README.md), not meant to run.

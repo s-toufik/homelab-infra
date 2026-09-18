@@ -14,8 +14,6 @@ cat <<INFO
   Prometheus     http://${host}:9090
   Alloy UI       http://${host}:12345
   Kafka UI       http://${host}:8080
-  myapi-a        http://${host}:8001/docs
-  myapi-b        http://${host}:8002/docs
   OTLP           grpc ${host}:4317 | http ${host}:4318
   Kafka          ${host}:9094
   PostgreSQL     ${host}:5432

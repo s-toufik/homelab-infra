@@ -1,0 +1,42 @@
+services:
+  agent-orchestrator:
+    image: toufik142/agent-orchestrator:${AGENT_ORCHESTRATOR_TAG:-latest}
+    container_name: agent-orchestrator
+    restart: unless-stopped
+    labels:
+      homelab.logs.otlp: "true"
+    depends_on:
+      otel-collector:
+        condition: service_started
+      mongodb:
+        condition: service_healthy
+      agent-toolbox:
+        condition: service_started
+    environment:
+      APP_ENV: deploy
+      DEPLOYMENT_ENVIRONMENT: homelab
+      OTEL_HOST: otel-collector
+      OTEL_PORT: "4317"
+      TOOLBOX_URL: http://agent-toolbox:8001/mcp
+      LLM_BASE_URL: http://llm:8080/v1
+      DB_MONGO_CHECKPOINT_HOST: mongodb
+      DB_MONGO_CHECKPOINT_PORT: "27017"
+      DB_MONGO_CHECKPOINT_NAME: agent_orchestrator
+      DB_MONGO_CHECKPOINT_USERNAME: ${MONGO_ROOT_USER}
+      DB_MONGO_CHECKPOINT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      DB_SQLITE_CHECKPOINT_HOST: /data/sqlite
+      DB_SQLITE_CHECKPOINT_NAME: checkpoint
+      TZ: ${TZ:-UTC}
+    volumes:
+      - agent-orchestrator-data:/data/sqlite
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8000:8000"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  agent-orchestrator-data:

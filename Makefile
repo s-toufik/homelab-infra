@@ -22,7 +22,7 @@ TAIL ?= 200
 OBS   := prometheus loki tempo otel-collector alloy grafana
 KAFKA := kafka kafka-ui kafka-exporter
 DB    := postgres mongodb
-APPS  := myapi-a myapi-b
+APPS  := agent-toolbox agent-orchestrator
 
 BACKUP_DIR := backups
 DATE := $(shell date +%F_%H%M)
@@ -80,8 +80,8 @@ recreate: check-env ## Force-recreate containers, e.g. after a config change (or
 	@$(COMPOSE) up -d --force-recreate $(S)
 
 .PHONY: build
-build: check-env ## Rebuild app images without cache
-	@$(COMPOSE) build --no-cache $(APPS)
+build: check-env ## Rebuild locally-built images without cache (or S="...")
+	@$(COMPOSE) build --no-cache $(S)
 
 .PHONY: pull
 pull: check-env ## Pull images (after bumping tags in .env)
@@ -101,8 +101,8 @@ up-kafka: check-env ## Start Kafka, Kafka UI, exporter
 	@$(COMPOSE) up -d $(KAFKA)
 up-db: check-env ## Start PostgreSQL and MongoDB
 	@$(COMPOSE) up -d $(DB)
-up-apps: check-env ## Build & start myapi-a and myapi-b
-	@$(COMPOSE) up -d --build $(APPS)
+up-apps: check-env ## Start agent-toolbox and agent-orchestrator (pulls if missing)
+	@$(COMPOSE) up -d $(APPS)
 up-llm: check-env ## Start the LLM server (llama-swap)
 	@$(COMPOSE) up -d llm
 
@@ -133,8 +133,8 @@ HEALTH_URLS := \
   'otel-collector|http://$(HOST):13133/' \
   'alloy|http://$(HOST):12345/-/ready' \
   'kafka-exporter|http://$(HOST):9308/metrics' \
-  'myapi-a|http://$(HOST):8001/health' \
-  'myapi-b|http://$(HOST):8002/health' \
+  'agent-toolbox|http://$(HOST):8001/agent_toolbox/actuator/health' \
+  'agent-orchestrator|http://$(HOST):8000/actuator/health' \
   'llm|http://$(HOST):8090/health'
 
 .PHONY: health
@@ -208,14 +208,6 @@ reload-prometheus: ## Hot-reload prometheus.yml
 .PHONY: reload-alloy
 reload-alloy: ## Hot-reload config.alloy
 	@curl -fsS -X POST http://$(HOST):12345/-/reload && echo "Alloy reloaded"
-
-N ?= 200
-FANOUT ?= 5
-.PHONY: traffic
-traffic: ## Generate demo traces: make traffic [N=200 FANOUT=5]
-	@echo "Sending $(N) requests to myapi-b /chain (fanout=$(FANOUT))..."
-	@for i in $$(seq 1 $(N)); do curl -fs -o /dev/null "http://$(HOST):8002/chain?fanout=$(FANOUT)" || true; done
-	@echo "Done — open Grafana → Explore → Tempo"
 
 ##@ LLM (llama-swap)
 
