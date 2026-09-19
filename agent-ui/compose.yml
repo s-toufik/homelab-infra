@@ -1,0 +1,18 @@
+services:
+  agent-ui:
+    image: toufik142/agent-ui:${AGENT_UI_TAG:-latest}
+    container_name: agent-ui
+    restart: unless-stopped
+    depends_on:
+      agent-orchestrator:
+        condition: service_started
+    environment:
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8002:8080"
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 128m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

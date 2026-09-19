@@ -10,6 +10,7 @@ a full **LGTM observability stack** (Loki, Grafana, Tempo, Prometheus) fed by **
 ```mermaid
 flowchart LR
   subgraph apps[Applications]
+    UI[agent-ui] -->|/api proxy| AG
     TB[agent-toolbox]
     AG[agent-orchestrator] -->|MCP| TB
   end
@@ -73,7 +74,7 @@ make sh S=kafka / make psql / make mongosh
 make topics / topic-create TOPIC=demo / consume TOPIC=demo / groups
 make reload-prometheus / reload-alloy      # hot reload, no restart
 make traffic N=500 FANOUT=5                # demo traces
-make llm-status / llm-ask M=granite4-7b Q="..."   # LLM (see llm/README.md)
+make llm-status / llm-ask M=qwen3-8b Q="..."      # LLM (see llm/README.md)
 make backup                                # Postgres + Mongo into ./backups
 make restore-postgres FILE=backups/x.dump
 make update                                # pull new images, then up
@@ -112,6 +113,7 @@ All ports bind to `BIND_ADDR` (`0.0.0.0` = LAN, `127.0.0.1` = local only).
 | LLM (llama-swap) | 8090 | OpenAI-compatible `/v1`, model selected by name — see [`llm/README.md`](llm/README.md) |
 | agent-toolbox | 8001 | MCP endpoint + `/agent_toolbox/actuator/health` |
 | agent-orchestrator | 8000 | `POST /api/v1/agent/stream`, `/actuator/health` |
+| agent-ui | 8002 | chat UI; proxies `/api` to `agent-orchestrator` internally |
 
 ## Resource budget
 
@@ -119,7 +121,7 @@ Memory limits are sized to leave ~10 GiB to the OS page cache (which Kafka, Post
 
 | Service | Memory limit | CPU cap |
 |---------|-------------:|--------:|
-| LLM (llama-swap: `granite4-7b` always-on + one on-demand model at a time) | 26 GiB | 16 |
+| LLM (llama-swap: `qwen3-8b` always-on + one on-demand model at a time) | 26 GiB | 16 |
 | PostgreSQL | 4 GiB | 2 |
 | Prometheus | 3 GiB | 2 |
 | Loki | 3 GiB | 2 |
@@ -132,7 +134,7 @@ Memory limits are sized to leave ~10 GiB to the OS page cache (which Kafka, Post
 | kafka-exporter | 128 MiB | 0.5 |
 | **Total (caps)** | **~48 GiB** | |
 
-These are ceilings, not reservations, and the LLM one is deliberately generous — the `on-demand` model group in [`llm/config.yml`](llm/config.yml) only ever keeps **one** of its members loaded at a time (`swap: true`), so real peak usage is `granite4-7b` (~5 GiB) + whichever on-demand model is active (up to ~19 GiB for the largest, `qwen3-30b-a3b`) + the rest of the stack — realistically close to the host's actual 31 GiB RAM, not the full 48 GiB sum. If you see OOM kills, lower the active on-demand model's `--ctx-size` in `llm/config.yml` before touching another service's limit.
+These are ceilings, not reservations, and the LLM one is deliberately generous — the `on-demand` model group in [`llm/config.yml`](llm/config.yml) only ever keeps **one** of its members loaded at a time (`swap: true`), so real peak usage is `qwen3-8b` (~5 GiB) + whichever on-demand model is active (the dense 24B/32B models are the heaviest at Q4_K_M, up to ~19 GiB) + the rest of the stack — realistically close to the host's actual 31 GiB RAM, not the full 48 GiB sum. If you see OOM kills, lower the active on-demand model's `--ctx-size` in `llm/config.yml` before touching another service's limit.
 
 ## Retention (disk)
 

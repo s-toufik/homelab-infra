@@ -1,5 +1,3 @@
-# Root compose file: aggregates every component with `include` (Docker Compose >= 2.20).
-# All services share the project's default network, so they reach each other by service name.
 name: homelab
 
 include:
@@ -23,4 +21,5 @@ include:
   # --- Applications ---
   - agent-toolbox/compose.yml
   - agent-orchestrator/compose.yml
+  - agent-ui/compose.yml
   # myapi-a is documentation only (see myapi-a/README.md), not meant to run.

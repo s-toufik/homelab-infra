@@ -54,8 +54,8 @@ scrape_configs:
     static_configs:
       - targets: [ "llm:8080" ]
         labels:
-          model: granite4-7b
-          __metrics_path__: /upstream/granite4-7b/metrics
+          model: qwen3-8b
+          __metrics_path__: /upstream/qwen3-8b/metrics
     file_sd_configs:
       - files: [ "/etc/prometheus/file_sd/llm/llm-targets.json" ]
         refresh_interval: 15s

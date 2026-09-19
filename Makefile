@@ -22,7 +22,7 @@ TAIL ?= 200
 OBS   := prometheus loki tempo otel-collector alloy grafana
 KAFKA := kafka kafka-ui kafka-exporter
 DB    := postgres mongodb
-APPS  := agent-toolbox agent-orchestrator
+APPS  := agent-toolbox agent-orchestrator agent-ui
 
 BACKUP_DIR := backups
 DATE := $(shell date +%F_%H%M)
@@ -135,6 +135,7 @@ HEALTH_URLS := \
   'kafka-exporter|http://$(HOST):9308/metrics' \
   'agent-toolbox|http://$(HOST):8001/agent_toolbox/actuator/health' \
   'agent-orchestrator|http://$(HOST):8000/actuator/health' \
+  'agent-ui|http://$(HOST):8002/' \
   'llm|http://$(HOST):8090/health'
 
 .PHONY: health
@@ -212,7 +213,7 @@ reload-alloy: ## Hot-reload config.alloy
 ##@ LLM (llama-swap)
 
 # M = model name for llm-ask (see llm/config.yml for the names llama-swap serves)
-M ?= granite4-7b
+M ?= qwen3-8b
 Q ?= What is Apache Kafka? Answer in two sentences.
 LLM_PORT := 8090
 
