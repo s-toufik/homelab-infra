@@ -28,11 +28,13 @@ Two entries have a source note: `mistral-small-3-2-24b-instruct` uses unsloth's 
 
 ## First start
 
-Models download from Hugging Face on first use into the `homelab_llm-models` volume and are reused afterwards. `qwen3-8b` downloads on startup; an on-demand model downloads the first time you request it — the first call to a new one can take a while. There are 11 on-demand models; check each repo's file size on Hugging Face before first use if disk space is a concern.
+Every model listed in `hooks.on_startup.preload` (in `config.yml`) downloads from Hugging Face into the `homelab_llm-models` volume on startup, one at a time, and is reused afterwards — currently that's **all 12 models**, several 20B+, so expect a large one-time download and a much longer first startup than any later one. Only `qwen3-8b` (the always-on model) ends up actually resident in RAM once preloading finishes; the rest are downloaded and then immediately swapped out, ready to load instantly on first request instead of downloading then.
+
+If you'd rather trade that long first startup for on-demand downloads (a model downloads the first time it's *requested*, not at container start), remove the models you don't want preloaded from `hooks.on_startup.preload`, leaving just `qwen3-8b`.
 
 ```bash
 make up-llm
-make llm-logs          # watch the download, Ctrl+C when the model is loaded
+make llm-logs          # watch the downloads, Ctrl+C once you see them finish
 make llm-status
 ```
 
