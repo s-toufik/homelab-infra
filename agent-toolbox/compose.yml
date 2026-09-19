@@ -14,6 +14,7 @@ services:
       OTEL_HOST: otel-collector
       OTEL_PORT: "4317"
       TOOLBOX_URL: http://agent-toolbox:8001/mcp
+      TOOLBOX_EXTRA_ALLOWED_HOSTS: ${TOOLBOX_EXTRA_ALLOWED_HOSTS:-sirius:8001}
       USER_DB_HOST: /data/sqlite
       USER_DB_NAME: user
       SANDBOX_TOOL_ACCESS: "true"
