@@ -22,7 +22,7 @@ TAIL ?= 200
 OBS   := prometheus loki tempo otel-collector alloy grafana
 KAFKA := kafka kafka-ui kafka-exporter
 DB    := postgres mongodb
-APPS  := agent-toolbox agent-orchestrator agent-ui
+APPS  := agent-toolbox agent-orchestrator homelab-ui
 
 BACKUP_DIR := backups
 DATE := $(shell date +%F_%H%M)
@@ -135,7 +135,7 @@ HEALTH_URLS := \
   'kafka-exporter|http://$(HOST):9308/metrics' \
   'agent-toolbox|http://$(HOST):8001/agent_toolbox/actuator/health' \
   'agent-orchestrator|http://$(HOST):8000/actuator/health' \
-  'agent-ui|http://$(HOST):8002/' \
+  'homelab-ui|http://$(HOST):8002/' \
   'llm|http://$(HOST):8090/health'
 
 .PHONY: health

@@ -10,7 +10,7 @@ a full **LGTM observability stack** (Loki, Grafana, Tempo, Prometheus) fed by **
 ```mermaid
 flowchart LR
   subgraph apps[Applications]
-    UI[agent-ui] -->|/api proxy| AG
+    UI[homelab-ui] -->|/api proxy| AG
     TB[agent-toolbox]
     AG[agent-orchestrator] -->|MCP| TB
   end
@@ -113,7 +113,7 @@ All ports bind to `BIND_ADDR` (`0.0.0.0` = LAN, `127.0.0.1` = local only).
 | LLM (llama-swap) | 8090 | OpenAI-compatible `/v1`, model selected by name — see [`llm/README.md`](llm/README.md) |
 | agent-toolbox | 8001 | MCP endpoint + `/agent_toolbox/actuator/health` |
 | agent-orchestrator | 8000 | `POST /api/v1/agent/stream`, `/actuator/health` |
-| agent-ui | 8002 | chat UI; proxies `/api` to `agent-orchestrator` internally |
+| homelab-ui | 8002 | homelab dashboard UI (agent page proxies `/api` to `agent-orchestrator` internally) |
 
 ## Resource budget
 

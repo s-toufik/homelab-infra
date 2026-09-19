@@ -1,7 +1,7 @@
 services:
-  agent-ui:
-    image: toufik142/agent-ui:${AGENT_UI_TAG:-latest}
-    container_name: agent-ui
+  homelab-ui:
+    image: toufik142/homelab-ui:${HOMELAB_UI_TAG:-latest}
+    container_name: homelab-ui
     restart: unless-stopped
     depends_on:
       agent-orchestrator:
