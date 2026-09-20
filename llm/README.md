@@ -11,7 +11,7 @@ Models are listed small to large by total parameters.
 | `qwen3-8b` | [Qwen/Qwen3-8B-GGUF](https://huggingface.co/Qwen/Qwen3-8B-GGUF) | 8B (dense) | Q4_K_M | always on |
 | `gigachat3.1-10b-a1.8b` | [ai-sage/GigaChat3.1-10B-A1.8B-GGUF](https://huggingface.co/ai-sage/GigaChat3.1-10B-A1.8B-GGUF) | 10B / 1.8B | Q4_K_M | on demand |
 | `qwen3-14b` | [Qwen/Qwen3-14B-GGUF](https://huggingface.co/Qwen/Qwen3-14B-GGUF) | 14B (dense) | Q4_K_M | on demand |
-| `gpt-oss-20b` | [openai/gpt-oss-20b](https://huggingface.co/openai/gpt-oss-20b) | 20.9B / ~3.6B | native MXFP4 | on demand |
+| `gpt-oss-20b` | [unsloth/gpt-oss-20b-GGUF](https://huggingface.co/unsloth/gpt-oss-20b-GGUF) (`F16` tag) | 20.9B / ~3.6B | MXFP4 (MoE experts) + F16 (rest) | on demand |
 | `lfm2-24b-a2b` | [LiquidAI/LFM2-24B-A2B-GGUF](https://huggingface.co/LiquidAI/LFM2-24B-A2B-GGUF) | 24B / 2.3B | Q4_K_M | on demand |
 | `mistral-small-3-2-24b-instruct` | [unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF](https://huggingface.co/unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF) | 24B (dense) | Q4_K_M | on demand |
 | `gemma4-26b-a4b` | [unsloth/gemma-4-26B-A4B-it-GGUF](https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF) | 26B / 4B | Q4_K_M | on demand |
@@ -21,7 +21,7 @@ Models are listed small to large by total parameters.
 
 `qwen3-8b` is always loaded and ready. Requesting any other model loads it (may take a while the first time — see First start) and unloads whichever on-demand model was loaded before; each also unloads on its own after 10 minutes idle. At most one on-demand model is resident at a time, alongside `qwen3-8b`.
 
-Two entries have a source note: `mistral-small-3-2-24b-instruct` uses unsloth's GGUF re-upload since Mistral AI doesn't publish an official GGUF for it; `qwen3-30b-a3b-instruct-2507` ships natively with up to a 1M-token context via YaRN, but `--ctx-size` here is capped at 131072 for RAM safety on this host — raise `--ctx-size`/add `--rope-scaling yarn --rope-scale N --yarn-orig-ctx 262144` in `config.yml` if you need more and have the RAM for it (see Tuning).
+Three entries have a source note: `mistral-small-3-2-24b-instruct` and `gpt-oss-20b` both use unsloth's GGUF re-upload since neither Mistral AI nor OpenAI publish an official GGUF for their model (OpenAI's own `openai/gpt-oss-20b` repo has no GGUF files at all -- llama.cpp needs one, not the native safetensors release); `qwen3-30b-a3b-instruct-2507` ships natively with up to a 1M-token context via YaRN, but `--ctx-size` here is capped at 131072 for RAM safety on this host — raise `--ctx-size`/add `--rope-scaling yarn --rope-scale N --yarn-orig-ctx 262144` in `config.yml` if you need more and have the RAM for it (see Tuning).
 
 - From containers: `http://llm:8080/v1`
 - From your devices: `http://<BIND_ADDR>:8090/v1`

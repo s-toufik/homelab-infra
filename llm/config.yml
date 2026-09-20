@@ -66,7 +66,7 @@ models:
   gpt-oss-20b:
     cmd: |
       /app/llama-server ${common}
-      -hf openai/gpt-oss-20b
+      -hf unsloth/gpt-oss-20b-GGUF:F16
       --ctx-size 131072
       --parallel 1
       --threads 12
