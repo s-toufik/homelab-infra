@@ -14,6 +14,7 @@ services:
         condition: service_started
     environment:
       APP_ENV: deploy
+      LOGURU_LEVEL: "${LOG_LEVEL:-INFO}"
       DEPLOYMENT_ENVIRONMENT: homelab
       OTEL_HOST: otel-collector
       OTEL_PORT: "4317"
