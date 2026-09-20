@@ -17,7 +17,6 @@ Models are listed small to large by total parameters.
 | `gemma4-26b-a4b` | [unsloth/gemma-4-26B-A4B-it-GGUF](https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF) | 26B / 4B | Q4_K_M | on demand |
 | `qwen3-30b-a3b-instruct-2507` | [unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF](https://huggingface.co/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF) | 30B / ~3B | Q4_K_M | on demand |
 | `qwen3-30b-a3b` | [unsloth/Qwen3-30B-A3B-GGUF](https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF) | 30.5B / 3.3B | Q4_K_M | on demand |
-| `qwen3-32b` | [Qwen/Qwen3-32B-GGUF](https://huggingface.co/Qwen/Qwen3-32B-GGUF) | 32B (dense) | Q4_K_M | on demand |
 
 `qwen3-8b` is always loaded and ready. Requesting any other model loads it (may take a while the first time — see First start) and unloads whichever on-demand model was loaded before; each also unloads on its own after 10 minutes idle. At most one on-demand model is resident at a time, alongside `qwen3-8b`.
 
@@ -28,7 +27,7 @@ Several entries have a source note. None of `mistralai`, `openai` or `Qwen`'s ow
 
 ## First start
 
-Every model listed in `hooks.on_startup.preload` (in `config.yml`) downloads from Hugging Face into the `homelab_llm-models` volume on startup, one at a time, and is reused afterwards — currently that's **all 12 models**, several 20B+, so expect a large one-time download and a much longer first startup than any later one. Only `qwen3-8b` (the always-on model) ends up actually resident in RAM once preloading finishes; the rest are downloaded and then immediately swapped out, ready to load instantly on first request instead of downloading then.
+Every model listed in `hooks.on_startup.preload` (in `config.yml`) downloads from Hugging Face into the `homelab_llm-models` volume on startup, one at a time, and is reused afterwards — currently that's **all 11 models**, several 20B+, so expect a large one-time download and a much longer first startup than any later one. Only `qwen3-8b` (the always-on model) ends up actually resident in RAM once preloading finishes; the rest are downloaded and then immediately swapped out, ready to load instantly on first request instead of downloading then.
 
 If you'd rather trade that long first startup for on-demand downloads (a model downloads the first time it's *requested*, not at container start), remove the models you don't want preloaded from `hooks.on_startup.preload`, leaving just `qwen3-8b`.
 
@@ -86,7 +85,7 @@ Adding or swapping an on-demand model just means adding it to the `on-demand` gr
 | `ttl` (`&ondemand_ttl` anchor) | each model's entry in `config.yml` | Seconds idle before auto-unload. `0` = never (`qwen3-8b`); `300` = 5 min (all on-demand models, edit the `&ondemand_ttl` line once to change all of them). Actual time to free the RAM is **2×** this — see Metrics below |
 | `deploy.resources.limits` | `compose.yml` | Container-wide CPU/memory cap — must cover `qwen3-8b` + the single largest on-demand model, not the sum of all of them |
 
-If the container is OOM-killed, lower the active on-demand model's `--ctx-size` first. The dense 24B/32B models (`mistral-small-3-2-24b-instruct`, `qwen3-32b`) are the heaviest of the bunch at Q4_K_M — either one plus `qwen3-8b` can already put you close to a 32 GiB host's ceiling.
+If the container is OOM-killed, lower the active on-demand model's `--ctx-size` first. `mistral-small-3-2-24b-instruct` (24B, dense) is the heaviest model left in the config at Q4_K_M — plus `qwen3-8b` can already put you close to a 32 GiB host's ceiling. `qwen3-32b` (32B, dense) used to be here too but was removed: at `--ctx-size 131072` its KV cache alone was large enough to OOM-kill the `llm` container's 26 GiB limit — a dense model at that size/context combination needs considerably more headroom than the MoE models in this config, whose sparse FFN keeps memory use much lower for a similar total parameter count. If you want it back, re-add it with a much smaller `--ctx-size` (e.g. 32768) rather than the 131072 used elsewhere.
 
 ## Metrics
 
