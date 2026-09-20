@@ -12,7 +12,6 @@ macros:
     --temp 0.7 --top-p 0.8 --top-k 20 --metrics
 
 models:
-  # Ordered small to large by total parameters, for readability.
   lfm2-8b-a1b:
     cmd: |
       /app/llama-server ${common}
@@ -26,7 +25,7 @@ models:
   ministral-8b-instruct-2410:
     cmd: |
       /app/llama-server ${common}
-      -hf mistralai/Ministral-8B-Instruct-2410-GGUF:Q4_K_M
+      -hf bartowski/Ministral-8B-Instruct-2410-GGUF:Q4_K_M
       --ctx-size 131072
       --parallel 1
       --threads 12
@@ -106,7 +105,7 @@ models:
   qwen3-30b-a3b-instruct-2507:
     cmd: |
       /app/llama-server ${common}
-      -hf Qwen/Qwen3-30B-A3B-Instruct-2507-GGUF:Q4_K_M
+      -hf unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF:Q4_K_M
       --ctx-size 131072
       --parallel 1
       --threads 12

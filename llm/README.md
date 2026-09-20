@@ -7,7 +7,7 @@ Models are listed small to large by total parameters.
 | Model | Hugging Face | Total / active params | Quantization | Availability |
 |---|---|---|---|---|
 | `lfm2-8b-a1b` | [LiquidAI/LFM2-8B-A1B-GGUF](https://huggingface.co/LiquidAI/LFM2-8B-A1B-GGUF) | 8B / ~1B | Q4_K_M | on demand |
-| `ministral-8b-instruct-2410` | [mistralai/Ministral-8B-Instruct-2410-GGUF](https://huggingface.co/mistralai/Ministral-8B-Instruct-2410-GGUF) | 8B (dense) | Q4_K_M | on demand |
+| `ministral-8b-instruct-2410` | [bartowski/Ministral-8B-Instruct-2410-GGUF](https://huggingface.co/bartowski/Ministral-8B-Instruct-2410-GGUF) | 8B (dense) | Q4_K_M | on demand |
 | `qwen3-8b` | [Qwen/Qwen3-8B-GGUF](https://huggingface.co/Qwen/Qwen3-8B-GGUF) | 8B (dense) | Q4_K_M | always on |
 | `gigachat3.1-10b-a1.8b` | [ai-sage/GigaChat3.1-10B-A1.8B-GGUF](https://huggingface.co/ai-sage/GigaChat3.1-10B-A1.8B-GGUF) | 10B / 1.8B | Q4_K_M | on demand |
 | `qwen3-14b` | [Qwen/Qwen3-14B-GGUF](https://huggingface.co/Qwen/Qwen3-14B-GGUF) | 14B (dense) | Q4_K_M | on demand |
@@ -15,13 +15,13 @@ Models are listed small to large by total parameters.
 | `lfm2-24b-a2b` | [LiquidAI/LFM2-24B-A2B-GGUF](https://huggingface.co/LiquidAI/LFM2-24B-A2B-GGUF) | 24B / 2.3B | Q4_K_M | on demand |
 | `mistral-small-3-2-24b-instruct` | [unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF](https://huggingface.co/unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF) | 24B (dense) | Q4_K_M | on demand |
 | `gemma4-26b-a4b` | [unsloth/gemma-4-26B-A4B-it-GGUF](https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF) | 26B / 4B | Q4_K_M | on demand |
-| `qwen3-30b-a3b-instruct-2507` | [Qwen/Qwen3-30B-A3B-Instruct-2507-GGUF](https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507-GGUF) | 30B / ~3B | Q4_K_M | on demand |
+| `qwen3-30b-a3b-instruct-2507` | [unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF](https://huggingface.co/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF) | 30B / ~3B | Q4_K_M | on demand |
 | `qwen3-30b-a3b` | [unsloth/Qwen3-30B-A3B-GGUF](https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF) | 30.5B / 3.3B | Q4_K_M | on demand |
 | `qwen3-32b` | [Qwen/Qwen3-32B-GGUF](https://huggingface.co/Qwen/Qwen3-32B-GGUF) | 32B (dense) | Q4_K_M | on demand |
 
 `qwen3-8b` is always loaded and ready. Requesting any other model loads it (may take a while the first time — see First start) and unloads whichever on-demand model was loaded before; each also unloads on its own after 10 minutes idle. At most one on-demand model is resident at a time, alongside `qwen3-8b`.
 
-Three entries have a source note: `mistral-small-3-2-24b-instruct` and `gpt-oss-20b` both use unsloth's GGUF re-upload since neither Mistral AI nor OpenAI publish an official GGUF for their model (OpenAI's own `openai/gpt-oss-20b` repo has no GGUF files at all -- llama.cpp needs one, not the native safetensors release); `qwen3-30b-a3b-instruct-2507` ships natively with up to a 1M-token context via YaRN, but `--ctx-size` here is capped at 131072 for RAM safety on this host — raise `--ctx-size`/add `--rope-scaling yarn --rope-scale N --yarn-orig-ctx 262144` in `config.yml` if you need more and have the RAM for it (see Tuning).
+Several entries have a source note. None of `mistralai`, `openai` or `Qwen`'s own org publishes an official GGUF for every checkpoint used here -- where that's the case, `config.yml` points at a community GGUF conversion instead of the original safetensors repo (which llama.cpp can't load directly): `mistral-small-3-2-24b-instruct` and `gpt-oss-20b` use unsloth's re-upload, `ministral-8b-instruct-2410` uses bartowski's, `qwen3-30b-a3b-instruct-2507` uses unsloth's (matching its sibling `qwen3-30b-a3b`, which is also unsloth-sourced -- Qwen doesn't officially GGUF-publish their MoE checkpoints, only the dense ones). Separately, `qwen3-30b-a3b-instruct-2507` ships natively with up to a 1M-token context via YaRN, but `--ctx-size` here is capped at 131072 for RAM safety on this host — raise `--ctx-size`/add `--rope-scaling yarn --rope-scale N --yarn-orig-ctx 262144` in `config.yml` if you need more and have the RAM for it (see Tuning).
 
 - From containers: `http://llm:8080/v1`
 - From your devices: `http://<BIND_ADDR>:8090/v1`
