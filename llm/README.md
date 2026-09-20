@@ -27,15 +27,23 @@ Several entries have a source note. None of `mistralai`, `openai` or `Qwen`'s ow
 
 ## First start
 
-Every model listed in `hooks.on_startup.preload` (in `config.yml`) downloads from Hugging Face into the `homelab_llm-models` volume on startup, one at a time, and is reused afterwards — currently that's **all 11 models**, several 20B+, so expect a large one-time download and a much longer first startup than any later one. Only `qwen3-8b` (the always-on model) ends up actually resident in RAM once preloading finishes; the rest are downloaded and then immediately swapped out, ready to load instantly on first request instead of downloading then.
-
-If you'd rather trade that long first startup for on-demand downloads (a model downloads the first time it's *requested*, not at container start), remove the models you don't want preloaded from `hooks.on_startup.preload`, leaving just `qwen3-8b`.
+`hooks.on_startup.preload` (in `config.yml`) only lists `qwen3-8b` — that's the only model downloaded and loaded automatically when the `llm` container starts.
 
 ```bash
 make up-llm
-make llm-logs          # watch the downloads, Ctrl+C once you see them finish
+make llm-logs          # watch the download, Ctrl+C once you see it finish
 make llm-status
 ```
+
+Every other model downloads on its own the first time it's *requested* — fine for occasional use, but the first request against a new 20B+ model will sit there downloading before it answers. To pre-warm one or more models ahead of time instead (into the same `homelab_llm-models` volume, no server restart needed):
+
+```bash
+./scripts/download_models.sh --list                       # model names, read from this file
+./scripts/download_models.sh qwen3-14b gpt-oss-20b         # download just these
+./scripts/download_models.sh --all                         # download everything (old preload-all behavior, but on your terms)
+```
+
+It reads each model's exact `-hf <repo>:<quant>` straight out of `config.yml` and fetches it with the same llama-swap image, so there's no separate mapping to keep in sync — editing a model's quant here is picked up automatically.
 
 ## Test
 
