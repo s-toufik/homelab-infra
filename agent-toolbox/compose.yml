@@ -18,11 +18,11 @@ services:
       USER_DB_HOST: /data/sqlite
       USER_DB_NAME: user
       SANDBOX_TOOL_ACCESS: "true"
-      SANDBOX_VAULT_DIR: /data/vault
+      WORKING_DIRECTORY: /data/working_directory
       TZ: ${TZ:-UTC}
     volumes:
       - agent-toolbox-data:/data/sqlite
-      - agent-toolbox-vault:/data/vault
+      - agent-working-directory:/data/working_directory
     ports:
       - "${BIND_ADDR:-127.0.0.1}:8001:8001"
     deploy:
@@ -34,4 +34,5 @@ services:
 
 volumes:
   agent-toolbox-data:
-  agent-toolbox-vault:
+  agent-working-directory:
+    name: homelab_agent-working-directory
