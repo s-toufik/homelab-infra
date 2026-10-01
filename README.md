@@ -166,13 +166,12 @@ Add its folder with a `compose.yml` and list it under `include:` in the root `co
 
 This is a trusted-LAN setup: Kafka, Loki, Tempo and Prometheus have no authentication. Before exposing anything beyond the LAN, set `BIND_ADDR=127.0.0.1` and put a reverse proxy with TLS + auth (Traefik, Caddy) in front. Alloy mounts the Docker socket read-only (needed for log discovery); `cadvisor` runs `privileged` with `cgroup: host` (needed to read per-container cgroup stats).
 
-## Shared working directory
+## Working directory
 
-`agent-toolbox` and `agent-orchestrator` mount the same Docker volume,
-`homelab_agent-working-directory`, at the same path, `/data/working_directory`
-(`WORKING_DIRECTORY` in both). A file written by one is visible to the other under the same
-path. The toolbox's file tools and Python sandbox are confined to it; with
-`AGENT_ENGINE=anthropic_sdk`, the agent's built-in file tools (`AGENT_SDK_TOOLS`) are too.
+`agent-toolbox` keeps the files its tools read and write in the Docker volume
+`homelab_agent-working-directory`, mounted at `/data/working_directory`
+(`WORKING_DIRECTORY`). Its file tools and Python sandbox are confined to it. The agent reaches
+these files only through the toolbox's tools.
 
 ## Upgrading
 

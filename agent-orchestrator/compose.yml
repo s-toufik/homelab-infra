@@ -27,13 +27,9 @@ services:
       DB_MONGO_CHECKPOINT_PASSWORD: ${MONGO_ROOT_PASSWORD}
       DB_SQLITE_CHECKPOINT_HOST: /data/sqlite
       DB_SQLITE_CHECKPOINT_NAME: checkpoint
-      AGENT_ENGINE: ${AGENT_ENGINE:-langgraph}
-      WORKING_DIRECTORY: /data/working_directory
-      AGENT_SDK_TOOLS: ${AGENT_SDK_TOOLS:-Glob,Grep}
       TZ: ${TZ:-UTC}
     volumes:
       - agent-orchestrator-data:/data/sqlite
-      - agent-orchestrator-working-directory:/data/working_directory
     ports:
       - "${BIND_ADDR:-127.0.0.1}:8000:8000"
     deploy:
@@ -45,5 +41,3 @@ services:
 
 volumes:
   agent-orchestrator-data:
-  agent-orchestrator-working-directory:
-    name: homelab_agent-working-directory
