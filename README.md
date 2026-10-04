@@ -1,6 +1,6 @@
 # homelab-infra
 
-A ready-to-run platform for a single home server: observability (Grafana, Prometheus, Loki, Tempo), Kafka, PostgreSQL, MongoDB, a local LLM server and the homelab agent — all started with one command.
+A ready-to-run platform for a single home server, started with one command. Each service lives in its own folder and plugs into the same network, observability and commands, so the stack grows one service at a time. Today it brings observability (Grafana, Prometheus, Loki, Tempo), Kafka, PostgreSQL, MongoDB, a local LLM server and the homelab agent.
 
 **[Using the stack](#using-the-stack)** — start it, open the tools, connect your apps.
 **[Working on the stack](#working-on-the-stack)** — how it is built and how to change it.
@@ -18,6 +18,8 @@ A ready-to-run platform for a single home server: observability (Grafana, Promet
 ## Using the stack
 
 ### What's inside
+
+The services today — every service added later appears here, in the [Ports](#ports) table and on the homelab page:
 
 | Service | What you use it for |
 |---|---|
@@ -63,7 +65,7 @@ Grafana opens on the **Homelab Overview** dashboard; **Server Health** and **LLM
 
 ### Connect your apps
 
-Use the first column from a container on the stack's network, the second from anywhere else.
+Use the first column from a container on the stack's network, the second from anywhere else. A service you add is reached the same way: its compose service name inside Docker, `<server>:<its-port>` from outside.
 
 | Service | Inside Docker | From your machine |
 |---|---|---|
@@ -160,7 +162,7 @@ GRAFANA
   Grafana ──► Prometheus · Loki · Tempo   (logs ↔ traces ↔ metrics, linked)
 ```
 
-There is no reverse proxy: every service publishes its own port on `BIND_ADDR`, and homelab-ui links to each one directly.
+There is no reverse proxy: every service publishes its own port on `BIND_ADDR`, and homelab-ui links to each one directly. The diagram and tables below describe the stack today; [Adding a service](#adding-a-service) lists what to update when it grows.
 
 | Signal | Path |
 |--------|------|
@@ -236,7 +238,8 @@ Every setting is in `.env`; `scripts/validate.sh` refuses to start while a `chan
 2. Pin its image tag in `.env.example` (`<SERVICE>_TAG`) and give it memory and CPU limits.
 3. Send its telemetry to `otel-collector` (see [See your app in Grafana](#see-your-app-in-grafana)); if it exposes Prometheus metrics, add a scrape job in `prometheus/prometheus.yml`.
 4. If it has an HTTP endpoint, add it to `HEALTH_URLS` in the `Makefile` and to a service group if it belongs to one.
-5. To show it on the homelab page, add a feature for it in homelab-ui.
+5. To show it on the homelab page, add a feature for it in homelab-ui (a link, a page, or a status in its Infrastructure section).
+6. Add it to this README: [What's inside](#whats-inside), the architecture diagram if it sends or receives telemetry, [Ports](#ports) and [Resource budget](#resource-budget).
 
 ### Resource budget
 
