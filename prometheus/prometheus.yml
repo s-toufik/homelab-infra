@@ -50,6 +50,16 @@ scrape_configs:
     static_configs:
       - targets: ["kafka-exporter:9308"]
 
+  - job_name: postgres-exporter
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: mongodb-exporter
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["mongodb-exporter:9216"]
+
   - job_name: llama-cpp
     static_configs:
       - targets: [ "llm:8080" ]

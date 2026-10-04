@@ -16,6 +16,8 @@ include:
   # --- Databases ---
   - postgres/compose.yml
   - mongodb/compose.yml
+  - postgres-exporter/compose.yml
+  - mongodb-exporter/compose.yml
   # --- LLM ---
   - llm/compose.yml
   # --- Applications ---

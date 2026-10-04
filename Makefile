@@ -21,7 +21,7 @@ TAIL ?= 200
 # Service groups
 OBS   := prometheus loki tempo otel-collector alloy grafana
 KAFKA := kafka kafka-ui kafka-exporter
-DB    := postgres mongodb
+DB    := postgres mongodb postgres-exporter mongodb-exporter
 APPS  := agent-toolbox agent-orchestrator homelab-ui
 
 BACKUP_DIR := backups
@@ -99,7 +99,7 @@ up-obs: check-env ## Start observability only (Prometheus, Loki, Tempo, OTel, Al
 	@$(COMPOSE) up -d $(OBS)
 up-kafka: check-env ## Start Kafka, Kafka UI, exporter
 	@$(COMPOSE) up -d $(KAFKA)
-up-db: check-env ## Start PostgreSQL and MongoDB
+up-db: check-env ## Start PostgreSQL, MongoDB and their exporters
 	@$(COMPOSE) up -d $(DB)
 up-apps: check-env ## Start agent-toolbox and agent-orchestrator (pulls if missing)
 	@$(COMPOSE) up -d $(APPS)
@@ -133,7 +133,7 @@ HEALTH_URLS := \
   'otel-collector|http://$(HOST):13133/' \
   'alloy|http://$(HOST):12345/-/ready' \
   'kafka-exporter|http://$(HOST):9308/metrics' \
-  'agent-toolbox|http://$(HOST):8001/agent_toolbox/actuator/health' \
+  'agent-toolbox|http://$(HOST):8001/actuator/health' \
   'agent-orchestrator|http://$(HOST):8000/actuator/health' \
   'homelab-ui|http://$(HOST):8002/' \
   'llm|http://$(HOST):8090/health'

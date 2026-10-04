@@ -1,0 +1,19 @@
+services:
+  mongodb-exporter:
+    image: percona/mongodb_exporter:${MONGODB_EXPORTER_TAG:-0.53.0}
+    container_name: mongodb-exporter
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER:-root}:${MONGO_ROOT_PASSWORD:?MONGO_ROOT_PASSWORD must be set in .env}@mongodb:27017/admin
+    command:
+      - --collector.diagnosticdata
+      - --log.level=warn
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 64m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

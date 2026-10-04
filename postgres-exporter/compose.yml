@@ -1,0 +1,18 @@
+services:
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:${POSTGRES_EXPORTER_TAG:-v0.20.1}
+    container_name: postgres-exporter
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB:-homelab}?sslmode=disable
+      DATA_SOURCE_USER: ${POSTGRES_USER:-homelab}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 64m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
