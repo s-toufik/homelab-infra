@@ -20,3 +20,15 @@ load_env() {
   source .env
   set +a
 }
+
+RELOADABLE=(prometheus alloy)
+
+reload_configs() {
+  local running service
+  running="$(docker compose ps --status running --services)"
+  for service in "${RELOADABLE[@]}"; do
+    if grep -qx "$service" <<<"$running"; then
+      docker compose kill -s SIGHUP "$service" >/dev/null && green "Reloaded $service configuration."
+    fi
+  done
+}

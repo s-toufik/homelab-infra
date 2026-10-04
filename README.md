@@ -112,7 +112,7 @@ Run `make` to list every command. The ones you'll use most:
 |---|---|
 | See what is running / is healthy | `make ps` · `make health` · `make stats` |
 | Follow logs | `make logs S=kafka` (`TAIL=500` for more history) |
-| Restart, or apply a config change | `make restart S="grafana tempo"` · `make recreate S=otel-collector` |
+| Restart, or apply a config change | `make up` reloads Prometheus and Alloy configs by itself · `make reload-prometheus` · `make recreate S=otel-collector` for the others |
 | Start one group only | `make up-obs` · `make up-kafka` · `make up-db` · `make up-apps` · `make up-llm` |
 | Open a shell / a database client | `make sh S=kafka` · `make psql` · `make mongosh` |
 | Work with Kafka topics | `make topics` · `make topic-create TOPIC=demo` · `make consume TOPIC=demo` · `make groups` |
@@ -236,7 +236,7 @@ Every setting is in `.env`; `scripts/validate.sh` refuses to start while a `chan
 
 1. Create `<service>/compose.yml` and list it under `include:` in the root `compose.yml`.
 2. Pin its image tag in `.env.example` (`<SERVICE>_TAG`) and give it memory and CPU limits.
-3. Send its telemetry to `otel-collector` (see [See your app in Grafana](#see-your-app-in-grafana)); if it exposes Prometheus metrics, add a scrape job in `prometheus/prometheus.yml`.
+3. Send its telemetry to `otel-collector` (see [See your app in Grafana](#see-your-app-in-grafana)); if it exposes Prometheus metrics, add a scrape job in `prometheus/prometheus.yml` — `make up` reloads Prometheus, so the job is live after the next deploy.
 4. If it has an HTTP endpoint, add it to `HEALTH_URLS` in the `Makefile` and to a service group if it belongs to one.
 5. To show it on the homelab page, add a feature for it in homelab-ui (a link, a page, or a status in its Infrastructure section).
 6. Add it to this README: [What's inside](#whats-inside), the architecture diagram if it sends or receives telemetry, [Ports](#ports) and [Resource budget](#resource-budget).

@@ -203,12 +203,12 @@ groups: check-env ## Consumer groups with lag
 ##@ Observability
 
 .PHONY: reload-prometheus
-reload-prometheus: ## Hot-reload prometheus.yml
-	@curl -fsS -X POST http://$(HOST):9090/-/reload && echo "Prometheus reloaded"
+reload-prometheus: check-env ## Hot-reload prometheus.yml (make up does it too)
+	@$(COMPOSE) kill -s SIGHUP prometheus >/dev/null && echo "Prometheus reloaded"
 
 .PHONY: reload-alloy
-reload-alloy: ## Hot-reload config.alloy
-	@curl -fsS -X POST http://$(HOST):12345/-/reload && echo "Alloy reloaded"
+reload-alloy: check-env ## Hot-reload config.alloy (make up does it too)
+	@$(COMPOSE) kill -s SIGHUP alloy >/dev/null && echo "Alloy reloaded"
 
 ##@ LLM (llama-swap)
 

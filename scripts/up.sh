@@ -4,6 +4,7 @@ source "$(dirname "$0")/_common.sh"
 load_env
 
 docker compose up -d --build --remove-orphans "$@"
+reload_configs
 
 host="${KAFKA_EXTERNAL_HOST:-localhost}"
 [[ "${BIND_ADDR:-127.0.0.1}" == "127.0.0.1" ]] && host=localhost
