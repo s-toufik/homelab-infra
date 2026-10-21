@@ -22,7 +22,7 @@ TAIL ?= 200
 OBS   := prometheus loki tempo otel-collector alloy grafana
 KAFKA := kafka kafka-ui kafka-exporter
 DB    := postgres mongodb postgres-exporter mongodb-exporter
-APPS  := agent-toolbox agent-orchestrator homelab-ui
+APPS  := agent-toolbox agent-runtime homelab-ui
 
 BACKUP_DIR := backups
 DATE := $(shell date +%F_%H%M)
@@ -101,7 +101,7 @@ up-kafka: check-env ## Start Kafka, Kafka UI, exporter
 	@$(COMPOSE) up -d $(KAFKA)
 up-db: check-env ## Start PostgreSQL, MongoDB and their exporters
 	@$(COMPOSE) up -d $(DB)
-up-apps: check-env ## Start agent-toolbox and agent-orchestrator (pulls if missing)
+up-apps: check-env ## Start agent-toolbox and agent-runtime (pulls if missing)
 	@$(COMPOSE) up -d $(APPS)
 up-llm: check-env ## Start the LLM server (llama-swap)
 	@$(COMPOSE) up -d llm
@@ -134,7 +134,7 @@ HEALTH_URLS := \
   'alloy|http://$(HOST):12345/-/ready' \
   'kafka-exporter|http://$(HOST):9308/metrics' \
   'agent-toolbox|http://$(HOST):8001/actuator/health' \
-  'agent-orchestrator|http://$(HOST):8000/actuator/health' \
+  'agent-runtime|http://$(HOST):8000/actuator/health' \
   'homelab-ui|http://$(HOST):8002/' \
   'llm|http://$(HOST):8090/health'
 

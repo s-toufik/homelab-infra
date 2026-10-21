@@ -32,7 +32,7 @@ The services today — every service added later appears here, in the [Ports](#p
 | **Kafka** + **Kafka UI** | Event streaming, and a web UI to browse topics and messages |
 | **PostgreSQL** / **MongoDB** | Databases for your projects |
 | **LLM (llama-swap)** | Local models behind an OpenAI-compatible API, plus a playground |
-| **agent-orchestrator** / **agent-toolbox** | The homelab agent and the tools it can use (files, Python) |
+| **agent-runtime** / **agent-toolbox** | The homelab agent and the tools it can use (files, Python) |
 
 ### Start it
 
@@ -74,7 +74,7 @@ Use the first column from a container on the stack's network, the second from an
 | Kafka bootstrap | `kafka:<kafka-internal-port>` | `<server>:<kafka-port>` (set `KAFKA_EXTERNAL_HOST` in `.env` to that address) |
 | LLM (OpenAI-compatible) | `http://llm:<llm-internal-port>/v1` | `http://<server>:<llm-port>/v1` |
 | OTLP (gRPC / HTTP) | `otel-collector:<otlp-grpc-port>` / `http://otel-collector:<otlp-http-port>` | `<server>:<otlp-grpc-port>` / `http://<server>:<otlp-http-port>` |
-| Agent API | `http://agent-orchestrator:<agent-port>` | `http://<server>:<agent-port>` |
+| Agent API | `http://agent-runtime:<agent-port>` | `http://<server>:<agent-port>` |
 | Agent tools (MCP) | `http://agent-toolbox:<toolbox-port>/mcp` | `http://<server>:<toolbox-port>/mcp` |
 
 Kafka and the LLM listen on a different port inside Docker than the one published on the server: both are in the [Ports](#ports) table.
@@ -135,13 +135,13 @@ Kafka, Loki, Tempo and Prometheus have no login. Keep the stack on your LAN or a
 ```text
 APPLICATIONS
 
-  homelab-ui ── HTTP, SSE ──► agent-orchestrator ── MCP ──► agent-toolbox
+  homelab-ui ── HTTP, SSE ──► agent-runtime ── MCP ──► agent-toolbox
                                       │
                                       └── conversations ──► MongoDB
 
 TELEMETRY
 
-  agent-orchestrator ─┐
+  agent-runtime ──────┐
                       ├─ OTLP ─► otel-collector ─┬─ traces ──► Tempo ── span metrics ──► Prometheus
   agent-toolbox ──────┘                          ├─ metrics ─► Prometheus
                                                  └─ logs ────► Loki
@@ -191,7 +191,7 @@ Grafana is provisioned (`grafana/provisioning/`) with the three datasources cros
 | `postgres/`, `mongodb/` | Databases |
 | `postgres-exporter/`, `mongodb-exporter/` | Database metrics for Prometheus (inside Docker only) |
 | `llm/` | llama-swap config (`config.yml`), metrics exporter — see [`llm/README.md`](llm/README.md) |
-| `agent-toolbox/`, `agent-orchestrator/`, `homelab-ui/` | The applications, run from their published images |
+| `agent-toolbox/`, `agent-runtime/`, `homelab-ui/` | The applications, run from their published images |
 | `myapi-a/` | Documentation only: a template for packaging a Python API. Not included, never runs |
 | `Readme_homelab.md` | Preparing an Ubuntu laptop as an always-on server |
 
@@ -213,7 +213,7 @@ Every setting is in `.env`; `scripts/validate.sh` refuses to start while a `chan
 | Service | Published port | Inside Docker | Notes |
 |---------|------|------|-------|
 | homelab-ui | 8002 | 8080 | |
-| agent-orchestrator | 8000 | 8000 | `POST /v1/stream` (SSE), `/actuator/health` |
+| agent-runtime | 8000 | 8000 | `POST /v1/stream` (SSE), `/actuator/health` |
 | agent-toolbox | 8001 | 8001 | `/mcp`, `/actuator/health` |
 | LLM (llama-swap) | 8090 | 8080 | `/v1`, `/ui`, `/health` |
 | Grafana | 3000 | 3000 | |
@@ -252,7 +252,7 @@ Memory limits leave about 10 GiB to the OS page cache, which Kafka, PostgreSQL a
 | Prometheus, Loki, Tempo, MongoDB | 3 GiB each | 2 |
 | Kafka | 2 GiB (1 GiB heap) | 2 |
 | Kafka UI, Grafana, Alloy | 768 MiB each | 1 |
-| OTel Collector, agent-orchestrator, agent-toolbox | 512 MiB each | 1 |
+| OTel Collector, agent-runtime, agent-toolbox | 512 MiB each | 1 |
 | cAdvisor | 384 MiB | 1 |
 | homelab-ui, kafka-exporter | 128 MiB each | 0.5 |
 | postgres-exporter, mongodb-exporter | 64 MiB each | 0.25 |

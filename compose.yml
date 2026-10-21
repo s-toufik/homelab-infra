@@ -22,6 +22,6 @@ include:
   - llm/compose.yml
   # --- Applications ---
   - agent-toolbox/compose.yml
-  - agent-orchestrator/compose.yml
+  - agent-runtime/compose.yml
   - homelab-ui/compose.yml
   # myapi-a is documentation only (see myapi-a/README.md), not meant to run.

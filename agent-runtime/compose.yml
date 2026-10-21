@@ -1,7 +1,7 @@
 services:
-  agent-orchestrator:
-    image: toufik142/agent-orchestrator:${AGENT_ORCHESTRATOR_TAG:-latest}
-    container_name: agent-orchestrator
+  agent-runtime:
+    image: toufik142/agent-runtime:${AGENT_RUNTIME_TAG:-latest}
+    container_name: agent-runtime
     restart: unless-stopped
     labels:
       homelab.logs.otlp: "true"
@@ -26,14 +26,14 @@ services:
       GUARDRAIL_ENABLED: ${GUARDRAIL_ENABLED}
       DB_MONGO_CHECKPOINT_HOST: mongodb
       DB_MONGO_CHECKPOINT_PORT: "27017"
-      DB_MONGO_CHECKPOINT_NAME: agent_orchestrator
+      DB_MONGO_CHECKPOINT_NAME: agent_runtime
       DB_MONGO_CHECKPOINT_USERNAME: ${MONGO_ROOT_USER}
       DB_MONGO_CHECKPOINT_PASSWORD: ${MONGO_ROOT_PASSWORD}
       DB_SQLITE_CHECKPOINT_HOST: /data/sqlite
       DB_SQLITE_CHECKPOINT_NAME: checkpoint
       TZ: ${TZ:-UTC}
     volumes:
-      - agent-orchestrator-data:/data/sqlite
+      - agent-runtime-data:/data/sqlite
     ports:
       - "${BIND_ADDR:-127.0.0.1}:8000:8000"
     deploy:
@@ -44,4 +44,4 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
 volumes:
-  agent-orchestrator-data:
+  agent-runtime-data:

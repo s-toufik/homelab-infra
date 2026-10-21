@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Placeholder FastAPI service documenting the real Dockerfile/uv template used
-# by this stack's Python APIs (agent-toolbox, agent-orchestrator). See README.md.
+# by this stack's Python APIs (agent-toolbox, agent-runtime). See README.md.
 FROM python:3.12-slim AS builder
 
 RUN pip install --no-cache-dir uv
