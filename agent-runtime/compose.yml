@@ -21,7 +21,6 @@ services:
       TOOLBOX_URL: http://agent-toolbox:8001/mcp
       LLM_BASE_URL: ${LLM_BASE_URL}
       LLM_API_KEY: ${LLM_API_KEY}
-      WEB_FRAMEWORK: ${WEB_FRAMEWORK:-fastapi}
       WEB_DOCS: ${WEB_DOCS:-false}
       AGENT_ANSWER_DELIVERY: ${AGENT_ANSWER_DELIVERY:-stream}
       MAX_CONCURRENT_STREAMS: ${MAX_CONCURRENT_STREAMS:-200}

@@ -206,7 +206,7 @@ Every setting is in `.env`; `scripts/validate.sh` refuses to start while a `chan
 | Credentials | `GRAFANA_ADMIN_*`, `KAFKA_UI_*`, `POSTGRES_*`, `MONGO_ROOT_*` |
 | Retention | `PROMETHEUS_RETENTION_TIME`, `PROMETHEUS_RETENTION_SIZE` |
 | Kafka | `KAFKA_CLUSTER_ID`, `KAFKA_EXTERNAL_HOST` |
-| Apps | `TOOLBOX_EXTRA_ALLOWED_HOSTS`, `LLM_BASE_URL`, `LLM_API_KEY`, `LOG_LEVEL`; for agent-runtime also `WEB_FRAMEWORK` (`fastapi` or `litestar`, switched by a restart), `WEB_DOCS`, `GUARDRAIL_ENABLED`, `MAX_CONCURRENT_STREAMS`, `AGENT_ANSWER_DELIVERY` |
+| Apps | `TOOLBOX_EXTRA_ALLOWED_HOSTS`, `LLM_BASE_URL`, `LLM_API_KEY`, `LOG_LEVEL`; for agent-runtime also `WEB_DOCS`, `GUARDRAIL_ENABLED`, `MAX_CONCURRENT_STREAMS`, `AGENT_ANSWER_DELIVERY` |
 
 ### Ports
 
