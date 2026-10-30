@@ -165,8 +165,8 @@ INSIDE := $(COMPOSE) exec -T caddy wget -q -T 5 -O -
 health: check-env ## Quick health checks: every service inside Docker, then the gateway over HTTPS
 	@for u in $(HEALTH_INTERNAL); do \
 	  name=$${u%%|*}; url=$${u#*|}; \
-	  if $(INSIDE) "$$url" >/dev/null 2>&1; then printf "  \033[32m✓\033[0m %s\n" "$$name"; \
-	  else printf "  \033[31m✗\033[0m %s  (%s)\n" "$$name" "$$url"; fi; \
+	  if err=$$($(INSIDE) "$$url" 2>&1 >/dev/null); then printf "  \033[32m✓\033[0m %s\n" "$$name"; \
+	  else printf "  \033[31m✗\033[0m %s  (%s — %s)\n" "$$name" "$$url" "$$(printf '%s' "$$err" | tail -n 1)"; fi; \
 	done
 	@for u in $(HEALTH_GATEWAY); do \
 	  name=$${u%%|*}; url=$${u#*|}; \
