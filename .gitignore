@@ -7,10 +7,8 @@
 *.crt
 secrets/
 
-# Local compose overrides (per-machine tweaks you don't want to commit)
-compose.override.yml
-compose.override.yaml
-docker-compose.override.yml
+# This server's Tailscale name and address (make local)
+environments/local.yaml
 
 # ---------- Data & backups (created by make backup / bind mounts) ----------
 backups/

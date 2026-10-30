@@ -1,0 +1,2 @@
+# Settings shared by every release. The server's own name and address are in local.yaml.
+timezone: Europe/Paris

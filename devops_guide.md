@@ -3,36 +3,32 @@
 Scenarios, as steps. Each `make` command is followed by the raw command it runs.
 
 - Run commands on the server, in the `homelab-infra` folder, unless a step says otherwise.
-- Before a raw command, load `.env` once per terminal: `set -a; . ./.env; set +a`
-- `<HOMELAB_DOMAIN>` = the value in `.env` (`<machine>.<tailnet>.ts.net`). `<name>` = an account name. `<tailscale-ip>` = `tailscale ip -4`.
+- `<HOMELAB_DOMAIN>` = `<machine>.<tailnet>.ts.net`. `<tailscale-ip>` = `tailscale ip -4`. `<lan-ip>` = the `src` of `ip -4 route get 1.1.1.1`.
+- `<release>` = a release name in `helmfile.yaml.gotmpl` (`caddy`, `keycloak`, `homelab-ui`…). `<name>` = an account name.
 
 **Server**
 [Prepare the server](#prepare-the-server) ·
+[Install Kubernetes](#install-kubernetes) ·
 [Protect it against freezes](#protect-the-server-against-freezes) ·
 [Battery and power cuts](#battery-and-power-cuts) ·
 [Get notified when the server is offline](#get-notified-when-the-server-is-offline) ·
 [Measure the internet speed](#measure-the-internet-speed) ·
-[Test the server](#test-the-server)
+[Test the server](#test-the-server) ·
+[Undo the server setup](#undo-the-server-setup)
 
 **Homelab**
-[First start](#first-start) ·
-[Start, stop, restart](#start-stop-restart) ·
-[Check the stack](#check-the-stack) ·
-[Update the stack](#update-the-stack) ·
+[Set up GitHub](#set-up-github) ·
+[First deploy](#first-deploy) ·
+[Deploy](#deploy) ·
+[Release an app](#release-an-app) ·
+[Roll back](#roll-back) ·
+[Change a chart](#change-a-chart) ·
+[Check the homelab](#check-the-homelab) ·
 [Accounts](#accounts) ·
-[Secrets and passwords](#secrets-and-passwords) ·
-[Database shells](#database-shells) ·
-[Database migrations](#database-migrations) ·
-[Backups and restores](#backups-and-restores) ·
-[Gateway](#gateway) ·
-[LLM and agent](#llm-and-agent) ·
-[Kafka](#kafka) ·
-[Observability](#observability) ·
-[Publish and deploy homelab-ui](#publish-and-deploy-homelab-ui) ·
-[Add a service](#add-a-service) ·
+[Secrets](#secrets) ·
+[Database shell](#database-shell) ·
 [Troubleshooting](#troubleshooting) ·
 [Reset the homelab](#reset-the-homelab) ·
-[Undo the server setup](#undo-the-server-setup) ·
 [Every make command](#every-make-command)
 
 ---
@@ -45,19 +41,10 @@ Turn an Ubuntu laptop into an always-on server. Do it on the laptop itself (keyb
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y
-sudo apt install -y curl jq lm-sensors openssh-server
+sudo apt install -y curl jq lm-sensors openssh-server nftables
 ```
 
-### 2. Install Docker
-
-1. Install Docker Engine and the Compose plugin: [docs.docker.com/engine/install/ubuntu](https://docs.docker.com/engine/install/ubuntu/).
-2. Use Docker without `sudo`, then log out and back in:
-   ```bash
-   sudo usermod -aG docker "$USER"
-   ```
-3. Check: `docker compose version` → 2.20 or later.
-
-### 3. Install and connect Tailscale
+### 2. Install and connect Tailscale
 
 1. Install and log in (open the link it prints):
    ```bash
@@ -73,14 +60,14 @@ sudo apt install -y curl jq lm-sensors openssh-server
    tailscale status --json | jq -r .Self.DNSName   # note it without the final dot: <HOMELAB_DOMAIN>
    ```
 
-### 4. Never sleep
+### 3. Never sleep
 
 1. ```bash
    sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
    ```
 2. Check: `systemctl status sleep.target` → `Loaded: masked`.
 
-### 5. Keep running with the lid closed
+### 4. Keep running with the lid closed
 
 1. ```bash
    sudo mkdir -p /etc/systemd/logind.conf.d
@@ -96,7 +83,7 @@ sudo apt install -y curl jq lm-sensors openssh-server
    ```
 2. Put the laptop on a hard surface with the vents clear.
 
-### 6. Boot without the desktop
+### 5. Boot without the desktop
 
 1. ```bash
    sudo systemctl set-default multi-user.target
@@ -106,7 +93,7 @@ sudo apt install -y curl jq lm-sensors openssh-server
 3. Check: `systemctl get-default` → `multi-user.target`.
 4. Close the lid for one minute, open it: `uptime` shows no sleep.
 
-### 7. Ethernet as the main network
+### 6. Ethernet as the main network
 
 1. Plug the cable into the router, then note the `ethernet` row's **CONNECTION** name:
    ```bash
@@ -134,7 +121,7 @@ sudo apt install -y curl jq lm-sensors openssh-server
    ping -c 3 1.1.1.1
    ```
 
-### 8. Wi-Fi as the fallback network
+### 7. Wi-Fi as the fallback network
 
 1. Connect:
    ```bash
@@ -157,7 +144,7 @@ sudo apt install -y curl jq lm-sensors openssh-server
    ```
 3. Check: unplug the Ethernet cable, wait 30 s, run `tailscale status` from another device → the laptop is online.
 
-### 9. Start only Tailscale at boot
+### 8. Start Tailscale and SSH at boot
 
 1. Tailscale starts at boot and always restarts:
    ```bash
@@ -173,25 +160,245 @@ sudo apt install -y curl jq lm-sensors openssh-server
    EOF
    sudo systemctl daemon-reload
    ```
-2. Docker starts on the first `docker` command instead of at boot:
-   ```bash
-   sudo systemctl disable docker.service containerd.service
-   sudo systemctl enable docker.socket
-   ```
-3. SSH on:
+2. SSH on:
    ```bash
    sudo systemctl enable ssh
    ```
-4. Turn off what a server doesn't need (if listed by `systemctl list-unit-files --type=service --state=enabled`):
+3. Turn off what a server doesn't need (if listed by `systemctl list-unit-files --type=service --state=enabled`):
    ```bash
    sudo systemctl disable --now cups.service cups-browsed.service bluetooth.service ModemManager.service
    ```
-5. Reboot, then check:
-   ```bash
-   systemctl is-active tailscaled     # active
-   systemctl is-active docker         # inactive
+4. Reboot, then check: `systemctl is-active tailscaled` → `active`.
+5. From another tailnet device: `ssh <user>@<tailscale-ip>`.
+
+## Install Kubernetes
+
+Single-node k3s, Helm, the helm-diff plugin and helmfile. Versions used:
+
+| Tool | Version |
+|---|---|
+| k3s | `v1.36.5+k3s1` |
+| Helm | `v4.3.1` |
+| helm-diff | `v3.15.15` |
+| helmfile | `v1.8.2` |
+
+### 1. Remove Docker (only if installed)
+
+1. ```bash
+   sudo systemctl disable --now docker.socket docker.service containerd.service
+   sudo apt purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras
+   sudo apt autoremove -y
+   sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources /etc/apt/keyrings/docker.asc /etc/apt/keyrings/docker.gpg
+   sudo gpasswd -d "$USER" docker
+   sudo reboot
    ```
-6. From another tailnet device: `ssh <user>@<tailscale-ip>`.
+2. Check: `command -v docker || echo gone` → `gone`.
+3. Optional, deletes the old containers and volumes for good:
+   ```bash
+   sudo du -sh /var/lib/docker /var/lib/containerd
+   sudo rm -rf /var/lib/docker /var/lib/containerd
+   ```
+
+### 2. Kernel limits
+
+```bash
+sudo tee /etc/sysctl.d/90-kubernetes.conf >/dev/null <<'EOF'
+fs.inotify.max_user_instances = 1024
+fs.inotify.max_user_watches = 524288
+EOF
+sudo sysctl --system
+sysctl fs.inotify.max_user_instances fs.inotify.max_user_watches    # 1024, 524288
+```
+
+### 3. Fixed node address
+
+1. ```bash
+   sudo nmcli connection add type dummy ifname k3s0 con-name k3s0 \
+     ipv4.method manual ipv4.addresses 10.250.0.1/32 ipv6.method disabled connection.autoconnect yes
+   sudo nmcli connection up k3s0
+   ```
+2. Check: `ip -4 addr show k3s0` → `inet 10.250.0.1/32`.
+
+### 4. Keep the Kubernetes ports off the LAN
+
+1. ```bash
+   sudo mkdir -p /etc/homelab
+   sudo tee /etc/homelab/k3s-lan-guard.nft >/dev/null <<'EOF'
+   table inet homelab_lan_guard
+   delete table inet homelab_lan_guard
+   table inet homelab_lan_guard {
+     chain input {
+       type filter hook input priority filter - 10; policy accept;
+       iifname { "lo", "tailscale0", "k3s0", "cni0", "flannel.1" } accept
+       tcp dport { 6443, 10250 } drop
+       udp dport 8472 drop
+     }
+   }
+   EOF
+   sudo tee /etc/systemd/system/k3s-lan-guard.service >/dev/null <<'EOF'
+   [Unit]
+   Description=Keep the Kubernetes ports off the LAN
+   Before=k3s.service
+
+   [Service]
+   Type=oneshot
+   RemainAfterExit=yes
+   ExecStart=/usr/sbin/nft -f /etc/homelab/k3s-lan-guard.nft
+
+   [Install]
+   WantedBy=multi-user.target
+   EOF
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now k3s-lan-guard
+   ```
+2. Check: `sudo nft list table inet homelab_lan_guard` prints the rules.
+3. Never `systemctl enable nftables`: its config flushes the k3s and Tailscale rules.
+
+### 5. Let your account run kubectl and helm
+
+1. ```bash
+   sudo groupadd --system k3s-admin
+   sudo usermod -aG k3s-admin "$USER"
+   echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> ~/.bashrc    # zsh: ~/.zshrc
+   ```
+2. Log out and back in.
+3. Check: `id -nG` lists `k3s-admin`; `echo $KUBECONFIG` → `/etc/rancher/k3s/k3s.yaml`.
+
+### 6. Install k3s
+
+1. Write the config:
+   ```bash
+   DOMAIN="$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')"
+   TSIP="$(tailscale ip -4)"
+   sudo mkdir -p /etc/rancher/k3s
+   sudo tee /etc/rancher/k3s/config.yaml >/dev/null <<EOF
+   node-ip: 10.250.0.1
+   flannel-iface: k3s0
+   write-kubeconfig-mode: "0640"
+   write-kubeconfig-group: k3s-admin
+   secrets-encryption: true
+   disable:
+     - traefik
+     - servicelb
+   tls-san:
+     - ${DOMAIN}
+     - ${TSIP}
+   EOF
+   sudo cat /etc/rancher/k3s/config.yaml
+   ```
+2. Install:
+   ```bash
+   cd "$(mktemp -d)"
+   curl -fsSL https://get.k3s.io -o k3s-install.sh
+   sudo INSTALL_K3S_VERSION='v1.36.5+k3s1' sh k3s-install.sh
+   ```
+3. Check, after a minute:
+   ```bash
+   kubectl get nodes -o wide          # Ready, INTERNAL-IP 10.250.0.1, v1.36.5+k3s1
+   kubectl get pods -A                # coredns, local-path-provisioner, metrics-server Running; no traefik, no svclb
+   sudo k3s secrets-encrypt status    # Encryption Status: Enabled
+   kubectl top node                   # CPU and memory figures
+   ```
+
+### 7. Docker Hub login for image pulls
+
+1. On hub.docker.com: **Account settings → Personal access tokens → Generate**, access **Read-only**. Copy it.
+2. `sudo nano /etc/rancher/k3s/registries.yaml`, paste, replace `<token>`:
+   ```yaml
+   mirrors:
+     docker.io:
+       endpoint:
+         - "https://index.docker.io/v2"
+   configs:
+     "https://index.docker.io/v2":
+       auth:
+         username: toufik142
+         password: <token>
+   ```
+3. ```bash
+   sudo chmod 600 /etc/rancher/k3s/registries.yaml
+   sudo systemctl restart k3s
+   ```
+4. Check: `sudo k3s crictl pull docker.io/library/busybox:1.36` → `Image is up to date` (a wrong token fails with `401 Unauthorized`).
+
+### 8. Install Helm
+
+1. ```bash
+   ARCH="$(dpkg --print-architecture)"; cd "$(mktemp -d)"
+   curl -fsSLO "https://get.helm.sh/helm-v4.3.1-linux-${ARCH}.tar.gz"
+   curl -fsSLO "https://get.helm.sh/helm-v4.3.1-linux-${ARCH}.tar.gz.sha256sum"
+   sha256sum -c "helm-v4.3.1-linux-${ARCH}.tar.gz.sha256sum"       # OK
+   tar -xzf "helm-v4.3.1-linux-${ARCH}.tar.gz"
+   sudo install -m 0755 "linux-${ARCH}/helm" /usr/local/bin/helm
+   ```
+2. Check: `helm version` → `v4.3.1`; `helm list -A` → column headers, no error.
+
+### 9. Install the helm-diff plugin
+
+1. Get the signing key:
+   ```bash
+   mkdir -p ~/.config/helm/keyrings
+   curl -fsSL https://github.com/databus23.gpg | gpg --dearmor > ~/.config/helm/keyrings/databus23.gpg
+   gpg --show-keys --with-fingerprint ~/.config/helm/keyrings/databus23.gpg
+   ```
+2. The fingerprint must be `C564 5EF4 7482 257A 1F80  6D2B EA17 A2A2 06AF F8CD`. Stop if it isn't.
+3. ```bash
+   ARCH="$(dpkg --print-architecture)"
+   helm plugin install "https://github.com/databus23/helm-diff/releases/download/v3.15.15/helm-diff-linux-${ARCH}.tgz" \
+     --keyring ~/.config/helm/keyrings/databus23.gpg
+   ```
+4. Check: output has `Plugin Hash Verified`; `helm plugin list` → `diff 3.15.15`.
+
+### 10. Install helmfile
+
+1. ```bash
+   ARCH="$(dpkg --print-architecture)"; cd "$(mktemp -d)"
+   curl -fsSLO "https://github.com/helmfile/helmfile/releases/download/v1.8.2/helmfile_1.8.2_linux_${ARCH}.tar.gz"
+   curl -fsSLO "https://github.com/helmfile/helmfile/releases/download/v1.8.2/helmfile_1.8.2_checksums.txt"
+   sha256sum -c --ignore-missing helmfile_1.8.2_checksums.txt    # OK
+   tar -xzf "helmfile_1.8.2_linux_${ARCH}.tar.gz" helmfile
+   sudo install -m 0755 helmfile /usr/local/bin/helmfile
+   ```
+2. Check: `helmfile version` → `1.8.2`.
+
+### 11. Check the cluster
+
+1. Pods reach the API and the internet:
+   ```bash
+   kubectl run nettest --rm -i --restart=Never --image=curlimages/curl:8.11.1 -- sh -c \
+     'curl -sk -o /dev/null -w "api %{http_code}\n" https://kubernetes.default.svc/version;
+      curl -s  -o /dev/null -w "internet %{http_code}\n" https://integrate.api.nvidia.com/v1/models'
+   ```
+   → `api 401` and `internet 200`.
+2. From another device on the home network:
+   - `nc -vz -w 3 <lan-ip> 6443` → times out
+   - `nc -vz -w 3 <tailscale-ip> 6443` → succeeded
+3. `sudo reboot`; after two minutes: `systemctl is-active k3s k3s-lan-guard` → `active` twice, `kubectl get nodes` → `Ready`.
+4. Unplug the Ethernet cable, `sudo systemctl restart k3s`, wait a minute:
+   - `kubectl get nodes -o wide` → `Ready`, `10.250.0.1`
+   - the nettest of step 1 → `internet 200`
+   - plug the cable back.
+
+### Upgrade k3s
+
+1. Pick the next version from [update.k3s.io/v1-release/channels](https://update.k3s.io/v1-release/channels) (`stable`); go up one minor version at a time.
+2. ```bash
+   cd "$(mktemp -d)"
+   curl -fsSL https://get.k3s.io -o k3s-install.sh
+   sudo INSTALL_K3S_VERSION='<version>' sh k3s-install.sh
+   ```
+3. Check: `kubectl get nodes` → `Ready`, new version.
+4. Update the version table above.
+
+### Upgrade Helm, helm-diff or helmfile
+
+1. Helm or helmfile: repeat its install step with the new version in every URL.
+2. helm-diff:
+   ```bash
+   helm plugin uninstall diff
+   ```
+   then step 3 of [Install the helm-diff plugin](#9-install-the-helm-diff-plugin) with the new version.
+3. Update the version table above.
 
 ## Protect the server against freezes
 
@@ -431,7 +638,7 @@ Every 2 hours; results in Grafana's **Server Health** dashboard (Download & Uplo
    # internet-speedtest — measure internet speed, log it to a CSV and send it to the OTel Collector
    set -euo pipefail
 
-   OTLP_URL="http://<tailscale-ip>:4318/v1/metrics"   # BIND_ADDR + port 4318
+   OTLP_URL="http://<tailscale-ip>:4318/v1/metrics"   # the OTel Collector
    CSV=/var/log/internet-speedtest.csv
    SPEEDTEST=${SPEEDTEST:-/snap/bin/speedtest}
 
@@ -476,10 +683,11 @@ Every 2 hours; results in Grafana's **Server Health** dashboard (Download & Uplo
    EOF
    sudo chmod +x /usr/local/bin/internet-speedtest
    ```
-3. With the stack up (`make up`), test it once (~30 s):
+3. Test it once (~30 s):
    ```bash
    sudo internet-speedtest      # Sent to Grafana: <time>,<down>,<up>,<ping>,<jitter>,<loss>
    ```
+   Until the OTel Collector runs, it prints `Stack not reachable, saved to /var/log/internet-speedtest.csv only`.
 4. Run it every 2 hours:
    ```bash
    sudo tee /etc/systemd/system/internet-speedtest.service >/dev/null <<'EOF'
@@ -530,97 +738,198 @@ Every 2 hours; results in Grafana's **Server Health** dashboard (Download & Uplo
 
 ## Test the server
 
-Once the homelab runs ([First start](#first-start)):
-
 - [ ] `sudo reboot`, don't log in, close the lid. After 5 minutes, from a phone on mobile data with Tailscale: `ssh <user>@<tailscale-ip>` works.
-- [ ] `systemctl is-active tailscaled` → `active`; `systemctl is-active docker` → `inactive` until the first `docker` command.
-- [ ] `make up`; Grafana's **Server Health** dashboard shows temperatures.
-- [ ] Unplug the Ethernet cable for 1 minute: still reachable. Plug it back: `ip route show default` uses Ethernet.
+- [ ] `systemctl is-active tailscaled k3s k3s-lan-guard` → `active` three times; `kubectl get nodes` → `Ready`.
+- [ ] Unplug the Ethernet cable for 1 minute: still reachable, `kubectl get nodes` → `Ready`. Plug it back: `ip route show default` uses Ethernet.
 - [ ] `sudo systemctl stop tailscaled`, wait 5 minutes: `journalctl -t tailscale-watchdog` shows "Restarting tailscaled", `tailscale status` works.
-- [ ] `make down`, then `echo c | sudo tee /proc/sysrq-trigger`: the laptop reboots by itself within a minute, Tailscale is back.
+- [ ] `echo c | sudo tee /proc/sysrq-trigger`: the laptop reboots by itself within a minute, Tailscale is back, `kubectl get nodes` → `Ready`.
 - [ ] Unplug the charger for 2 minutes: the laptop keeps running.
+
+## Undo the server setup
+
+```bash
+# Sleep and lid
+sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target
+sudo rm -f /etc/systemd/logind.conf.d/server.conf
+
+# Desktop
+sudo systemctl set-default graphical.target
+
+# Kubernetes (deletes every pod and volume)
+/usr/local/bin/k3s-uninstall.sh
+sudo systemctl disable --now k3s-lan-guard
+sudo rm -f /etc/systemd/system/k3s-lan-guard.service /etc/sysctl.d/90-kubernetes.conf
+sudo rm -rf /etc/homelab /etc/rancher
+sudo nmcli connection delete k3s0
+sudo rm -f /usr/local/bin/helm /usr/local/bin/helmfile
+rm -rf ~/.config/helm ~/.local/share/helm ~/.cache/helm
+sudo groupdel k3s-admin
+
+# Freeze protection
+sudo systemctl disable --now tailscale-watchdog.timer
+sudo rm -f /etc/systemd/system/tailscale-watchdog.* /usr/local/bin/tailscale-watchdog.sh
+sudo rm -f /etc/systemd/system.conf.d/watchdog.conf /etc/modules-load.d/watchdog.conf
+sudo rm -f /etc/sysctl.d/99-server-autoreboot.conf
+sudo rm -rf /etc/systemd/system/tailscaled.service.d
+
+# Internet speed test
+sudo systemctl disable --now internet-speedtest.timer
+sudo rm -f /etc/systemd/system/internet-speedtest.* /usr/local/bin/internet-speedtest
+
+# Battery, heartbeat, updates
+sudo systemctl disable --now battery-limit.service heartbeat.timer
+sudo rm -f /etc/systemd/system/battery-limit.service /etc/systemd/system/heartbeat.*
+sudo rm -f /etc/apt/apt.conf.d/52server-reboot
+
+# Wi-Fi power saving
+sudo rm -f /etc/NetworkManager/conf.d/wifi-powersave-off.conf
+
+sudo systemctl daemon-reload
+sudo reboot
+```
 
 ---
 
-## First start
+## Set up GitHub
+
+Once. Charts and images must be public, so the server pulls them without a login.
+
+**kube-charts (on your Mac)**
+1. On github.com: **New repository** `kube-charts`, **Public**, nothing else.
+2. ```bash
+   cd ~/SandBox/kube-charts
+   git init -b main
+   git add .
+   git commit -m "feat: homelab charts"
+   git remote add origin git@github.com:s-toufik/kube-charts.git
+   git push -u origin main
+   ```
+3. **Actions → Charts**: CHECK and PUBLISH are green.
+4. [github.com/s-toufik?tab=packages](https://github.com/s-toufik?tab=packages) → `charts/app` → **Package settings → Change visibility → Public**. Same for `charts/pg-cluster`.
+5. Check on the server: `helm show chart oci://ghcr.io/s-toufik/charts/app --version 0.1.0` → `name: app`.
+
+**Each app repository (homelab-ui first)**
+1. **Settings → Environments → production → Deployment branches and tags**: if it is restricted, **Add deployment branch or tag rule** → **Tag** `v*`.
+2. Merge the release to `main`, then tag it (on your Mac, in the app repository):
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+3. **Actions**: PUBLISH and CHART are green.
+4. Packages → `charts/homelab-ui` → **Change visibility → Public**.
+5. Check on the server: `helm show chart oci://ghcr.io/s-toufik/charts/homelab-ui --version 1.0.0` → `name: homelab-ui`.
+
+## First deploy
 
 1. Get the repository:
    ```bash
-   git clone <homelab-infra repository> && cd homelab-infra
+   git clone git@github.com:s-toufik/homelab-infra.git && cd homelab-infra
+   git switch feature/kube
    ```
-2. Create `.env`:
-   - `make env`
-   - raw: `cp .env.example .env && chmod 600 .env`
-3. Generate the passwords and secrets:
+2. Write this server's name and address:
+   - `make local`
+   - raw: `./scripts/local.sh`
+3. Create the passwords and keys:
    - `make secrets`
    - raw: `./scripts/secrets.sh`
-4. Edit `.env` (`nano .env`):
-   - `HOMELAB_DOMAIN=<HOMELAB_DOMAIN>`
-   - `BIND_ADDR=<tailscale-ip>` (`tailscale ip -4`; every port listens there only)
-   - `LLM_BASE_URL` and `LLM_API_KEY`: NVIDIA's `https://integrate.api.nvidia.com/v1` with your key, or `http://llm:8080/v1` for the local models
-   - optional: `TOOLBOX_EXTRA_ALLOWED_HOSTS="<machine>:8001"` if MCP clients use the short MagicDNS name
-   - optional: `POSTGRES_USER`, `POSTGRES_DB`, `MONGO_ROOT_USER`, `GRAFANA_ADMIN_USER`, `KEYCLOAK_ADMIN_USER`
-5. `make secrets` again → *nothing left to set by hand*.
-6. Validate:
+4. Check:
    - `make validate`
    - raw: `./scripts/validate.sh`
-7. Start (the first time downloads ~5 GB):
-   - `make up`
-   - raw: `docker compose up -d --build --remove-orphans && docker compose kill -s SIGHUP prometheus alloy`
-8. Create your account (email, names, password twice):
+5. Deploy everything (the first time ~10 minutes: images download, PostgreSQL starts):
+   - `make apply`
+   - raw: `helmfile apply`
+6. Create your account (email, names, password twice):
    - `make user-add ACCOUNT=<name>`
    - raw: `./scripts/users.sh add <name>`
-9. Make it admin:
+7. Make it admin:
    - `make user-admin ACCOUNT=<name>`
    - raw: `./scripts/users.sh admin <name>`
-10. Verify, every line ✓:
-    - `make verify` — raw: `./scripts/verify.sh`
-    - `make health` (wait a minute after the start for Loki and Tempo)
-11. Open `https://<HOMELAB_DOMAIN>/status` on a Tailscale device and sign in.
+8. Verify, every line ✓:
+   - `make verify`
+   - raw: `./scripts/verify.sh`
+9. Open `https://<HOMELAB_DOMAIN>/` on a Tailscale device and sign in.
 
-## Start, stop, restart
+## Deploy
 
-| Scenario | make | Raw command |
-|---|---|---|
-| Start everything / apply any change | `make up` | `docker compose up -d --build --remove-orphans` |
-| Start some services | `make up S="grafana loki"` | `docker compose up -d --build --remove-orphans grafana loki` |
-| Start one group | `make up-gateway` · `up-db` · `up-kafka` · `up-obs` · `up-llm` · `up-apps` | `docker compose up -d <services of the group>` |
-| Stop everything, keep data | `make down` | `docker compose down --remove-orphans` |
-| Stop without removing | `make stop S=grafana` | `docker compose stop grafana` |
-| Start stopped containers | `make start S=grafana` | `docker compose start grafana` |
-| Restart | `make restart S=grafana` | `docker compose restart grafana` |
-| Recreate after a config change | `make recreate S=caddy` | `docker compose up -d --force-recreate caddy` |
-| Rebuild without cache | `make build S=llm-sd-exporter` | `docker compose build --no-cache llm-sd-exporter` |
-| After a server reboot | `make up` | `docker compose up -d --build --remove-orphans` |
+**See what would change**
+- `make diff` (or `R=<release>`, or `G=<group>`)
+- raw: `helmfile diff` (`helmfile -l name=<release> diff`, `helmfile -l group=<group> diff`)
 
-## Check the stack
+**Apply it**
+- everything (the release train): `make apply` — raw: `helmfile apply`
+- one release: `make apply R=<release>` — raw: `helmfile -l name=<release> apply`
+- one group (`platform`, `repository`, `gateway`, `apps`): `make apply G=<group>` — raw: `helmfile -l group=<group> apply`
 
-| Scenario | make | Raw command |
-|---|---|---|
-| Is every container healthy? | `make health` | `docker compose exec -T caddy wget -q -T 5 -O - http://<service>:<port>/<path>` (one per service) |
-| Is sign-in and data protection working? | `make verify` | `./scripts/verify.sh` |
-| What runs? | `make ps` | `docker compose ps` |
-| Why does a service fail? | `make logs S=keycloak TAIL=500` | `docker compose logs -f --tail=500 keycloak` |
-| CPU and memory | `make stats` | `docker stats` |
-| Prometheus targets | `make targets` | `docker compose exec -T caddy wget -q -O - http://prometheus:9090/api/v1/targets` |
-| Disk used by data | `make volumes` | `docker system df -v` |
-| Resolved configuration | `make config` | `docker compose config` |
+**Re-run a release's deploy jobs without a change** (e.g. Keycloak's realm sync)
+- `make sync R=<release>`
+- raw: `helmfile -l name=<release> sync`
 
-In a browser: `https://<HOMELAB_DOMAIN>/status`.
+**After editing a config file** (`gateway/caddy/Caddyfile`, `gateway/keycloak/sync.sh`, any `values.yaml.gotmpl`)
+1. `make validate`
+2. `make diff R=<release>`
+3. `make apply R=<release>` (the pod restarts with the new file)
 
-## Update the stack
+## Release an app
 
-**Pull a new version of this repository**
-1. `git pull`
-2. `make validate`
-3. `make up`
-4. `make verify && make health`
+**On your Mac, in the app repository**
+1. Merge to `main` what goes in the release.
+2. Tag it:
+   ```bash
+   git tag v<X.Y.Z>
+   git push origin v<X.Y.Z>
+   ```
+3. **Actions**: PUBLISH (image `toufik142/<app>:<X.Y.Z>`) and CHART (`oci://ghcr.io/s-toufik/charts/<app>:<X.Y.Z>`) are green.
 
-**New image versions**
-1. Bump the `*_TAG` in `.env`, one service at a time.
-2. `make validate`
-3. `make update` — raw: `docker compose pull --ignore-buildable && docker compose up -d --build --remove-orphans`
-4. `make verify && make health`
+**In homelab-infra**
+4. Set the version in `environments/versions.yaml` (e.g. `apps.homelabUi: <X.Y.Z>`), commit, push.
+
+**On the server**
+5. `git pull`
+6. `make diff R=<release>` — raw: `helmfile -l name=<release> diff`
+7. `make apply R=<release>` — raw: `helmfile -l name=<release> apply`
+8. `make status` → the pod is `Running`; open the app.
+
+**A release train** (several apps at once)
+1. Steps 1–3 in each app repository.
+2. Every new version in `environments/versions.yaml`, one commit.
+3. On the server: `git pull`, `make diff`, `make apply`.
+
+## Roll back
+
+**Right away**
+1. `make releases` — raw: `helm list -A` (current revision of each release)
+2. `make rollback R=<release>` — raw: `helm -n homelab rollback <release>`
+3. In `environments/versions.yaml`, set the previous version back, commit, push (otherwise the next `make apply` upgrades again).
+
+**To a chosen version**
+1. That version in `environments/versions.yaml`.
+2. `make apply R=<release>`
+
+## Change a chart
+
+**On your Mac, in kube-charts**
+1. Edit the chart; raise its `version` in `charts/<chart>/Chart.yaml` (e.g. `0.1.0` → `0.1.1`).
+2. Check:
+   - `make check`
+   - raw: `./scripts/check.sh`
+3. Commit and push to `main`. **Actions → Charts**: PUBLISH is green.
+
+**In homelab-infra**
+4. The new version in `environments/versions.yaml` (`charts.app` or `charts.pgCluster`), commit, push.
+
+**On the server**
+5. `git pull`, `make diff`, `make apply`.
+
+Apps get the new `app` chart with their next release (their CI builds on the latest one).
+
+## Check the homelab
+
+- Pods: `make status` — raw: `kubectl -n homelab get pods -o wide`
+- Everything, every line ✓: `make verify` — raw: `./scripts/verify.sh`
+- Releases and versions: `make releases` — raw: `helm list -A`
+- Logs: `make logs R=<release>` — raw: `kubectl -n homelab logs -f --tail=200 -l app.kubernetes.io/instance=<release> --all-containers --prefix` (PostgreSQL: `-l cnpg.io/cluster=postgres`)
+- Why a pod doesn't start: `make events` — raw: `kubectl -n homelab get events --sort-by=.lastTimestamp | tail -n 40`
+- CPU and memory: `make top` — raw: `kubectl -n homelab top pods`
 
 ## Accounts
 
@@ -659,453 +968,95 @@ In a browser: `https://<HOMELAB_DOMAIN>/status`.
 - `make user-unlock ACCOUNT=<name>` — raw: `./scripts/users.sh unlock <name>`
 
 **Remove an account**
-1. `make backup-postgres` (to keep its Tasker data restorable).
-2. `make user-remove ACCOUNT=<name>` — raw: `./scripts/users.sh remove <name>`
-3. Type the account name to confirm.
-4. Answer whether to delete its Tasker workflows and favorites.
-5. `make sessions-revoke` to end its open sessions now.
+1. `make user-remove ACCOUNT=<name>` — raw: `./scripts/users.sh remove <name>`
+2. Type the account name to confirm.
+3. Answer whether to delete its Tasker workflows and favorites.
+4. `make sessions-revoke` to end its open sessions now.
 
 **Sign everyone out now**
 - `make sessions-revoke`
 - raw:
   ```bash
-  ./scripts/secrets.sh --rotate OAUTH2_PROXY_COOKIE_SECRET
-  docker compose up -d --force-recreate oauth2-proxy
+  ./scripts/secrets.sh rotate oauth2-proxy cookie-secret
   ./scripts/users.sh logout-all
   ```
 
 **Sign out yourself**
 - **Sign out** in homelab-ui's left sidebar, or open `https://<HOMELAB_DOMAIN>/oauth2/sign_out?rd=%2F`.
 
-## Secrets and passwords
+## Secrets
 
-**Fill missing secrets**
+Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in git, never on a command line.
+
+**Create what is missing** (safe to re-run)
 - `make secrets` — raw: `./scripts/secrets.sh`
 
-**Rotate a gateway secret**
-1. `./scripts/secrets.sh --rotate <NAME>` — `<NAME>` is one of `OAUTH2_PROXY_COOKIE_SECRET`, `OAUTH2_PROXY_CLIENT_SECRET`, `GRAFANA_OIDC_CLIENT_SECRET`, `TASKER_GATEWAY_SECRET`, `LLM_GATEWAY_API_KEY`
-2. `make up`
-3. After `LLM_GATEWAY_API_KEY`: update the scripts and apps that call the LLM API.
+**List them** (names and keys, no values)
+- `make secrets-list` — raw: `./scripts/secrets.sh list`
 
-**Check the database passwords in `.env`**
-- `make db-passwords-check` — raw: `./scripts/db-passwords.sh check`
+**Type a value yourself** (e.g. the LLM provider's API key)
+1. `make secret-set SECRET=<secret> KEY=<key>` — raw: `./scripts/secrets.sh set <secret> <key>`
+2. Paste the value twice (hidden). The pods using it restart.
 
-**Change the PostgreSQL password**
-1. Set the new `POSTGRES_PASSWORD` in `.env` (letters and digits).
-2. `make postgres-password-sync` — raw: `./scripts/db-passwords.sh postgres-sync`
-3. `make up`
+**Rotate a generated value**
+1. `make secret-rotate SECRET=<secret> KEY=<key>` — raw: `./scripts/secrets.sh rotate <secret> <key>`
+2. The pods using it restart; PostgreSQL applies a new role password by itself.
+3. For `oauth2-proxy/client-secret` or `grafana-oidc/client-secret`: `make sync R=keycloak`.
+- Rotatable: `pg-role-postgrest/password`, `pg-role-keycloak/password`, `oauth2-proxy/client-secret`, `oauth2-proxy/cookie-secret` (signs everyone out), `grafana-oidc/client-secret`, `tasker-gateway/secret`, `llm-gateway/api-key`.
+- Not rotatable (read once, when their data is created): `keycloak-admin`, `grafana-admin`, `mongodb`.
 
-**Change the MongoDB password**
-1. Set the new `MONGO_ROOT_PASSWORD` in `.env`.
-2. `make mongo-password-sync` — raw: `./scripts/db-passwords.sh mongo-sync` (asks the current password)
-3. `make up`
+**Read one** (e.g. the LLM API key, for a script)
+- `kubectl -n homelab get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d; echo`
 
-**Change `POSTGREST_PASSWORD` or `KEYCLOAK_DB_PASSWORD`**
-1. Set the new value in `.env`.
-2. `make up`
+## Database shell
 
-**Change Grafana's local admin password**
-1. ```bash
-   docker compose exec grafana grafana cli admin reset-admin-password '<new password>'
-   ```
-2. Set the same value as `GRAFANA_ADMIN_PASSWORD` in `.env`.
-
-**Change Keycloak's admin password**
-1. Run (first prompt: current password, second: new one):
-   ```bash
-   docker compose exec keycloak bash -c 'kc=/opt/keycloak/bin/kcadm.sh; cfg=/tmp/kcadm-pw.config; trap "rm -f $cfg" EXIT; $kc config credentials --config $cfg --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" && $kc set-password --config $cfg -r master --username "$KC_BOOTSTRAP_ADMIN_USERNAME"'
-   ```
-2. Set the new value as `KEYCLOAK_ADMIN_PASSWORD` in `.env`.
-3. `make up`
-4. `make users` works → done.
-
-## Database shells
-
-| Scenario | make | Raw command |
-|---|---|---|
-| psql on the homelab database | `make psql` | `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'` |
-| psql on the accounts database | — | `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d keycloak'` |
-| mongosh | `make mongosh` | `docker compose exec mongodb sh -c 'mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin'` |
-| Shell in a container | `make sh S=kafka` | `docker compose exec kafka sh` |
-
-**Connect an app:** PostgreSQL `<HOMELAB_DOMAIN>:5432`; MongoDB `mongodb://<user>:<password>@<HOMELAB_DOMAIN>:27017/?authSource=admin`; from a container of the stack: `postgres:5432`, `mongodb:27017`.
-
-## Database migrations
-
-**Add a migration**
-1. `make backup-postgres`
-2. Create the file:
-   - `make migration-new NAME=add_workflow_tags`
-   - raw: create `repository/postgres/migrations/<next number>_add_workflow_tags.sql` with the lines `-- migrate:up` and `-- migrate:down`
-3. Write the change under `-- migrate:up` and its undo under `-- migrate:down`; end both with `NOTIFY pgrst, 'reload schema';` when Tasker's API uses the change:
-   ```sql
-   -- migrate:up
-   ALTER TABLE tasker.workflows ADD COLUMN tags text[] NOT NULL DEFAULT '{}';
-   NOTIFY pgrst, 'reload schema';
-
-   -- migrate:down
-   ALTER TABLE tasker.workflows DROP COLUMN tags;
-   NOTIFY pgrst, 'reload schema';
-   ```
-4. `make validate`
-5. Apply:
-   - `make migrate`
-   - raw: `docker compose run --rm db-migrate migrate && docker compose kill -s SIGUSR1 postgrest`
-6. Check:
-   - `make migrate-status`
-   - raw: `docker compose run --rm db-migrate status`
-7. Commit the file.
-
-**Undo the latest migration**
-1. `make backup-postgres`
-2. `make migrate-rollback` — raw: `docker compose run --rm db-migrate rollback`
-3. Type `rollback` to confirm.
-4. `make migrate-status`
-
-**Fix a migration that already ran**
-1. Don't edit it.
-2. Add a new migration that corrects it (steps above).
-
-More on the files: [repository/postgres/MIGRATIONS.md](repository/postgres/MIGRATIONS.md).
-
-## Backups and restores
-
-**Back up everything**
-1. `make backup` — raw: `make backup-postgres && make backup-mongo`
-2. Copy `backups/` off the server.
-
-| Scenario | make | Raw command |
-|---|---|---|
-| PostgreSQL + accounts | `make backup-postgres` | `docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' > backups/postgres_<date>.dump` and the same with `keycloak` → `backups/keycloak_<date>.dump` |
-| MongoDB | `make backup-mongo` | `docker compose exec -T mongodb sh -c 'mongodump -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --archive --gzip --quiet' > backups/mongo_<date>.archive` |
-
-**Restore the homelab database**
-1. `make restore-postgres FILE=backups/postgres_<date>.dump`
-   - raw: `docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < backups/postgres_<date>.dump`
-2. Type `restore`.
-3. `make restart S=postgrest`
-
-**Restore the accounts**
-1. `make restore-postgres FILE=backups/keycloak_<date>.dump DB=keycloak`
-   - raw: same with `-d keycloak`
-2. Type `restore`.
-3. `make restart S=keycloak`
-
-**Restore MongoDB**
-1. `make restore-mongo FILE=backups/mongo_<date>.archive`
-   - raw: `docker compose exec -T mongodb sh -c 'mongorestore -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --archive --gzip --drop' < backups/mongo_<date>.archive`
-2. Type `restore`.
-
-## Gateway
-
-**Check the HTTPS certificate**
-1. `curl -sS https://<HOMELAB_DOMAIN>/healthz` → `OK`
-2. If not: `make logs S=caddy`.
-
-**Change the domain**
-1. Set `HOMELAB_DOMAIN` in `.env`.
-2. `make validate`
-3. `make up`
-4. `make verify`
-5. Everyone signs in again at the new address.
-
-**Apply a Caddyfile change**
-1. Edit `gateway/caddy/Caddyfile`.
-2. `make validate`
-3. `make recreate S=caddy` — raw: `docker compose up -d --force-recreate caddy`
-
-**Change the password policy, lockout or a client**
-1. Edit `gateway/keycloak/sync.sh`.
-2. `make up` — raw: `docker compose up -d --build --remove-orphans` (runs `keycloak-sync`)
-3. `make logs S=keycloak-sync`
-
-**Call the LLM API from another machine**
-```bash
-curl https://<HOMELAB_DOMAIN>:8090/v1/models -H "Authorization: Bearer $LLM_GATEWAY_API_KEY"
-```
-
-**Open the tools**
-- The list of URLs: [README → Access](README.md#access), or the Status page.
-
-## LLM and agent
-
-| Scenario | make | Raw command |
-|---|---|---|
-| Is it up, which models | `make llm-status` | `docker compose exec -T caddy wget -q -O - http://llm:8080/v1/models` |
-| Models loaded now | `make llm-running` | `python3 ai/llm/test.py running https://<HOMELAB_DOMAIN>:8090` |
-| Ask a question | `make llm-ask M=qwen3-8b Q="Hello"` | `python3 ai/llm/test.py ask https://<HOMELAB_DOMAIN>:8090 qwen3-8b "Hello"` |
-| Logs | `make llm-logs` | `docker compose logs -f --tail=200 llm` |
-| Free its RAM | `make llm-down` | `docker compose stop llm` |
-| Start it again | `make up-llm` | `docker compose up -d llm` |
-| Download models ahead | — | `./scripts/download_models.sh --list` · `./scripts/download_models.sh qwen3-14b` · `./scripts/download_models.sh --all` |
-| Start agent, toolbox, MCP Inspector, UI | `make up-apps` | `docker compose up -d agent-toolbox agent-runtime mcp-inspector homelab-ui` |
-| Stop them | `make down-apps` | `docker compose stop agent-toolbox agent-runtime mcp-inspector homelab-ui` |
-| Agent logs | `make logs S="agent-runtime agent-toolbox"` | `docker compose logs -f --tail=200 agent-runtime agent-toolbox` |
-
-**Chat with the agent**
-1. Open `https://<HOMELAB_DOMAIN>/agent` (homelab-ui → **Agent**).
-
-**Call the agent API from a tailnet device**
-1. API docs: `http://<HOMELAB_DOMAIN>:8000/docs` (needs `WEB_DOCS=true`).
-2. Health: `curl http://<HOMELAB_DOMAIN>:8000/actuator/health`
-
-**Connect an MCP client to the toolbox from a tailnet device**
-1. Server URL: `http://<HOMELAB_DOMAIN>:8001/mcp`, transport **Streamable HTTP**.
-2. Using another name (e.g. `<machine>:8001`)? Add it to `TOOLBOX_EXTRA_ALLOWED_HOSTS` in `.env`, then `make up S=agent-toolbox`.
-
-**List and try the agent's tools (agent-toolbox)**
-1. Open `https://<HOMELAB_DOMAIN>:6274` (homelab-ui → **MCP Inspector**) and sign in.
-2. Pick **agent-toolbox** → **Connect**.
-3. **Tools** → **List tools** → pick a tool → fill its inputs → **Run tool**.
-
-**Update the MCP Inspector**
-1. Set `MCP_INSPECTOR_TAG` in `.env` (releases: [github.com/modelcontextprotocol/inspector/releases](https://github.com/modelcontextprotocol/inspector/releases)).
-2. `make pull S=mcp-inspector && make up S=mcp-inspector`
-   - raw: `docker compose pull mcp-inspector && docker compose up -d mcp-inspector`
-3. `make verify`
-
-**Add a model**
-1. Add it to `ai/llm/config.yml` (see [ai/llm/README.md](ai/llm/README.md)).
-2. `./scripts/download_models.sh <model>`
-3. `make recreate S=llm`
-4. `make llm-status`
-
-## Kafka
-
-| Scenario | make | Raw command |
-|---|---|---|
-| List topics | `make topics` | `docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list` |
-| Create a topic | `make topic-create TOPIC=demo PARTITIONS=3` | `docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic demo --partitions 3 --replication-factor 1` |
-| Describe a topic | `make topic-describe TOPIC=demo` | `docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic demo` |
-| Read a topic | `make consume TOPIC=demo` | `docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic demo --from-beginning` |
-| Consumer groups and lag | `make groups` | `docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-groups` |
-
-**Connect an app from another machine**
-1. Set `KAFKA_EXTERNAL_HOST=<HOMELAB_DOMAIN>` in `.env`.
-2. `make up S=kafka`
-3. Bootstrap server: `<HOMELAB_DOMAIN>:9094` (containers: `kafka:9092`).
-
-## Observability
-
-**Send your app's telemetry to Grafana**
-1. Add to its compose service:
-   ```yaml
-   environment:
-     OTEL_SERVICE_NAME: my-service
-     OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318   # another machine: http://<HOMELAB_DOMAIN>:4318
-     OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-   labels:
-     homelab.logs.otlp: "true"   # only if it sends its logs over OTLP
-   ```
-2. `make up S=my-service`
-3. Grafana → **Explore** → Tempo / Loki / Prometheus, `service_name = my-service`.
-
-**Apply a config change**
-
-| File | make | Raw command |
-|---|---|---|
-| `observability/metrics/prometheus/prometheus.yml` | `make reload-prometheus` | `docker compose kill -s SIGHUP prometheus` |
-| `observability/collectors/alloy/config.alloy` | `make reload-alloy` | `docker compose kill -s SIGHUP alloy` |
-| Loki, Tempo, OTel Collector config | `make recreate S=loki` | `docker compose up -d --force-recreate loki` |
-| Grafana dashboard JSON | `make restart S=grafana` | `docker compose restart grafana` |
-
-Run `make validate` before each.
-
-**Keep a dashboard made in Grafana**
-1. Dashboard → **Export → Export as JSON** → download.
-2. Save it in `observability/dashboards/grafana/dashboards/<name>.json`.
-3. `make restart S=grafana`
-4. Commit the file.
-
-**Add an alert**
-1. Grafana → **Alerting → Contact points → Add contact point**; test it.
-2. **Alerting → Alert rules → New alert rule**; pick a query, condition, pending period and the contact point. Examples:
-
-| Alert | Query | Condition | Pending |
-|---|---|---|---|
-| CPU too hot | `max(node_hwmon_temp_celsius)` | above 90 | 5m |
-| On battery | `max(node_power_supply_online{power_supply!~"BAT.*"})` | below 1 | 2m |
-| Battery low | `min(node_power_supply_capacity{power_supply=~"BAT.*"})` | below 30 | 1m |
-| Disk almost full | `100 * (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})` | above 90 | 15m |
-| Server rebooted | `changes(node_boot_time_seconds[15m])` | above 0 | 0s |
-
-**Change retention**
-- Prometheus: `PROMETHEUS_RETENTION_TIME` / `_SIZE` in `.env`, then `make up S=prometheus`.
-- Loki: `retention_period` in `observability/logs/loki/config.yml`, then `make recreate S=loki`.
-- Tempo: `block_retention` in `observability/traces/tempo/config.yml`, then `make recreate S=tempo`.
-
-## Publish and deploy homelab-ui
-
-**On your Mac, in the homelab-ui repository**
-1. `make check` — raw: `npx prettier --check . && npx tsc -p tsconfig.app.json --noEmit && npx ng test --watch=false`
-2. `docker login`
-3. `make docker_publish` (or `make docker_publish TAG=1.4.0`)
-   - raw: `docker buildx build --platform linux/amd64,linux/arm64 -f devops/docker/Dockerfile -t toufik142/homelab-ui:latest --push .`
-
-**On the server**
-1. Pinned version only: `HOMELAB_UI_TAG=1.4.0` in `.env`.
-2. `make pull S=homelab-ui && make up S=homelab-ui`
-   - raw: `docker compose pull homelab-ui && docker compose up -d homelab-ui`
-3. Open `https://<HOMELAB_DOMAIN>/status` and reload the page.
-
-**Roll back**
-1. `HOMELAB_UI_TAG=<previous tag>` in `.env`.
-2. `make pull S=homelab-ui && make up S=homelab-ui`
-
-## Add a service
-
-1. Create `<group>/<service>/compose.yml` (`gateway`, `repository`, `message_broker`, `observability/<metrics|logs|traces|collectors|dashboards>`, `ai`, `apps`).
-2. Add it to `include:` in `compose.yml`.
-3. Add `<SERVICE>_TAG` to `.env.example` and `.env`; set `mem_limit`, `cpus` and the `logging` block like the other services.
-4. Web interface — don't publish its port; in `gateway/caddy/Caddyfile` add:
-   ```
-   {$HOMELAB_DOMAIN}:<port> {
-   	import signed_in_tool <service>:<port>
-   }
-   ```
-   and the port in `gateway/caddy/compose.yml`.
-5. Health — in the `Caddyfile` under `/api/*`: `import health_route <service> <service>:<port> <health path>`; in the `Makefile`: add it to `HEALTH_INTERNAL`.
-6. Status page — in homelab-ui: add it to `STACK_SERVICES` (`src/app/features/status/domain/stack-services.ts`), then [publish the UI](#publish-and-deploy-homelab-ui).
-7. Metrics — add a scrape job in `observability/metrics/prometheus/prometheus.yml`.
-8. Add it to [README.md](README.md).
-9. `make validate && make up && make verify && make health`
+- `make psql` — raw: `kubectl -n homelab exec -it "$(kubectl -n homelab get pod -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o name)" -c postgres -- psql -d homelab`
+- Keycloak's database: `\c keycloak` inside psql.
 
 ## Troubleshooting
 
-**`make up` stops at `db-migrate`, log says `password authentication failed`**
-1. `make db-passwords-check`
-2. `make postgres-password-sync`
-3. `make up`
+**`make apply` stops at `secrets.sh check`**
+1. The line above names the Secret and key.
+2. `make secrets`, or `make secret-set SECRET=<secret> KEY=<key>` for a typed one.
 
-**`keycloak-sync` failed**
-1. `make logs S=keycloak-sync`
-2. `docker compose logs --tail=100 keycloak`
-3. Wrong admin password → [Change Keycloak's admin password](#secrets-and-passwords), else `make up` again.
+**A pod is `CreateContainerConfigError`**
+1. `kubectl -n homelab describe pod <pod> | tail -n 20` → names the missing Secret or key.
+2. `make secrets`.
 
-**`https://<HOMELAB_DOMAIN>` doesn't open, or the certificate is refused**
-1. The device is on Tailscale: `tailscale status`.
-2. Tailscale admin console → **DNS** → HTTPS Certificates on.
-3. `tailscale status --json | jq -r .Self.DNSName` = `HOMELAB_DOMAIN` (without the final dot).
-4. `make logs S=caddy`
+**A pod is `ImagePullBackOff`, or `make apply` says a chart is not found**
+1. `kubectl -n homelab describe pod <pod> | tail -n 20`, or `helm show chart oci://ghcr.io/s-toufik/charts/<chart> --version <version>`.
+2. The version doesn't exist (check the app's Actions run and `environments/versions.yaml`), or the package isn't public ([Set up GitHub](#set-up-github), step 4).
 
-**Every page sends you back to the sign-in**
-1. `timedatectl` → the clock is synchronized.
-2. `make recreate S=oauth2-proxy`
-3. Clear the browser's cookies for `<HOMELAB_DOMAIN>`.
+**The Caddy pod stays `Pending`** (`didn't have free ports`)
+1. Something else holds a gateway port: `sudo ss -tlnp | grep -E ':(443|8443|3000|9090)\b'`
+2. Stop it (e.g. an old Docker stack: [Install Kubernetes](#1-remove-docker-only-if-installed)).
 
-**"Account is temporarily disabled"**
-- `make user-unlock ACCOUNT=<name>`, or wait 15 minutes.
+**`https://<HOMELAB_DOMAIN>/` doesn't answer**
+1. `make status` → caddy `Running`?
+2. `make logs R=caddy` → certificate errors: MagicDNS and HTTPS certificates on in the Tailscale admin console; `make validate` (Tailscale's socket).
 
-**`make health`: Loki or Tempo ✗ right after a start**
-- Wait one minute, `make health` again.
+**Signing in fails (error page or endless redirect)**
+1. `make logs R=oauth2-proxy`
+2. Inside the cluster the Tailscale name must reach Caddy: `kubectl -n homelab exec deploy/caddy -- wget -qO- https://<HOMELAB_DOMAIN>:8443/realms/homelab/.well-known/openid-configuration` → JSON. If not: `kubectl -n kube-system get configmap coredns-custom -o yaml` and `make apply R=caddy`.
+3. `kubectl -n homelab logs job/keycloak-sync` → `keycloak sync done`; otherwise `make sync R=keycloak`.
 
-**Status page: a service is *Not ready***
-1. `make ps`
-2. `make logs S=<service>`
-3. `make restart S=<service>`
+**PostgreSQL isn't Ready**
+1. `kubectl -n homelab get clusters.postgresql.cnpg.io postgres` → STATUS.
+2. `make logs R=postgres`
+3. Roles: `kubectl -n homelab get clusters.postgresql.cnpg.io postgres -o jsonpath='{.status.managedRolesStatus}'; echo`
 
-**Status page: everything *Unknown***
-1. Open it at `https://<HOMELAB_DOMAIN>/status` (not from `npm start`).
-2. `make logs S=prometheus`
-
-**A container exits with `exec format error`**
-1. Publish the image for both platforms (`make docker_publish` in homelab-ui).
-2. `make pull S=<service> && make up S=<service>`
-
-**MCP Inspector: the page answers 403, or `/api` calls fail with 403**
-1. `HOMELAB_DOMAIN` in `.env` is the address in the browser.
-2. `make recreate S=mcp-inspector` (it reads `HOMELAB_DOMAIN` at start).
-3. `make logs S=mcp-inspector`
-
-**MCP Inspector: Connect to agent-toolbox fails**
-1. `make health` → agent-toolbox ✓.
-2. `make logs S=agent-toolbox` → look for `Invalid Host header` or `Invalid Origin header`.
-3. `make verify` → "the MCP Inspector reaches agent-toolbox" ✓.
-
-**`make user-*` says `No account named …`**
-- `make users`
-
-**The laptop sleeps with the lid closed**
-1. `systemctl status sleep.target` → masked.
-2. `cat /etc/systemd/logind.conf.d/server.conf` → exists.
-3. In the BIOS: disable any "sleep on lid close".
-
-**The laptop rebooted on its own**
-```bash
-journalctl -b -1 -e                  # end of the previous boot
-journalctl -t tailscale-watchdog     # reboots by the watchdog
-last -x reboot | head
-```
-
-**Tailscale is logged out after a reboot**
-1. `sudo tailscale up`
-2. Admin console → the laptop → **Disable key expiry**.
-
-**The laptop reboots in a loop**
-1. Within 5 minutes of boot:
-   ```bash
-   sudo systemctl disable --now tailscale-watchdog.timer
-   sudo rm /etc/systemd/system.conf.d/watchdog.conf /etc/sysctl.d/99-server-autoreboot.conf
-   sudo reboot
-   ```
-2. `journalctl -b -1 -e`
-
-**No internet speed data in Grafana**
-1. `sudo internet-speedtest` with the stack up.
-2. `Stack not reachable` → `docker port otel-collector` shows 4318; `make logs S=otel-collector`.
-3. Prometheus (`https://<HOMELAB_DOMAIN>:9090/query`): `{__name__=~"internet.*"}`.
-
-**No temperatures in Grafana**
-1. `sensors` shows nothing → `sudo sensors-detect --auto`, reboot.
-2. Prometheus: `node_hwmon_temp_celsius`.
+**`another operation (install/upgrade/rollback) is in progress`**
+1. `helm -n homelab history <release>`
+2. `make rollback R=<release>`
 
 ## Reset the homelab
 
-Deletes all data: databases, accounts, metrics, logs, traces, Kafka, models, agent files.
+Deletes all data: databases, accounts, Secrets, volumes. The operators (`cnpg`, `reloader`) stay.
 
-1. `make backup` (if anything is worth keeping)
-2. `make clean`, type `delete`
-   - raw: `docker compose down --remove-orphans --volumes`
-3. `docker volume ls -q | grep '^homelab_'` → nothing.
-4. `mv .env .env.old`
-5. Follow [First start](#first-start).
-6. `rm .env.old`
-
-## Undo the server setup
-
-```bash
-# Sleep and lid
-sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target
-sudo rm -f /etc/systemd/logind.conf.d/server.conf
-
-# Desktop
-sudo systemctl set-default graphical.target
-
-# Docker at boot
-sudo systemctl enable docker.service containerd.service
-
-# Freeze protection
-sudo systemctl disable --now tailscale-watchdog.timer
-sudo rm -f /etc/systemd/system/tailscale-watchdog.* /usr/local/bin/tailscale-watchdog.sh
-sudo rm -f /etc/systemd/system.conf.d/watchdog.conf /etc/modules-load.d/watchdog.conf
-sudo rm -f /etc/sysctl.d/99-server-autoreboot.conf
-sudo rm -rf /etc/systemd/system/tailscaled.service.d
-
-# Internet speed test
-sudo systemctl disable --now internet-speedtest.timer
-sudo rm -f /etc/systemd/system/internet-speedtest.* /usr/local/bin/internet-speedtest
-
-# Battery, heartbeat, updates
-sudo systemctl disable --now battery-limit.service heartbeat.timer
-sudo rm -f /etc/systemd/system/battery-limit.service /etc/systemd/system/heartbeat.*
-sudo rm -f /etc/apt/apt.conf.d/52server-reboot
-
-# Wi-Fi power saving
-sudo rm -f /etc/NetworkManager/conf.d/wifi-powersave-off.conf
-
-sudo systemctl daemon-reload
-sudo reboot
-```
+1. `kubectl delete namespace homelab` (waits until everything in it is gone)
+2. `kubectl -n kube-system delete configmap coredns-custom`
+3. `kubectl get pv` → nothing left from `homelab`.
+4. Follow [First deploy](#first-deploy) from step 3.
 
 ## Every make command
 
@@ -1113,33 +1064,23 @@ sudo reboot
 
 | make | Raw command |
 |---|---|
-| `make env` | `cp .env.example .env && chmod 600 .env` |
+| `make local` | `./scripts/local.sh` |
 | `make secrets` | `./scripts/secrets.sh` |
+| `make secrets-list` | `./scripts/secrets.sh list` |
+| `make secret-set SECRET=… KEY=…` | `./scripts/secrets.sh set <secret> <key>` |
+| `make secret-rotate SECRET=… KEY=…` | `./scripts/secrets.sh rotate <secret> <key>` |
 | `make validate` | `./scripts/validate.sh` |
-| `make config` | `docker compose config` |
-| `make up [S=…]` | `./scripts/up.sh` → `docker compose up -d --build --remove-orphans`, then `docker compose kill -s SIGHUP prometheus alloy` |
-| `make down` | `./scripts/down.sh` → `docker compose down --remove-orphans` |
-| `make stop [S=…]` | `docker compose stop` |
-| `make start [S=…]` | `docker compose start` |
-| `make restart [S=…]` | `docker compose restart` |
-| `make recreate [S=…]` | `docker compose up -d --force-recreate` |
-| `make build [S=…]` | `docker compose build --no-cache` |
-| `make pull [S=…]` | `docker compose pull --ignore-buildable` |
-| `make update` | `make pull && make up` |
-| `make up-gateway` | `docker compose up -d caddy keycloak oauth2-proxy` |
-| `make up-db` | `docker compose up -d postgres mongodb postgres-exporter mongodb-exporter postgrest` |
-| `make up-kafka` | `docker compose up -d kafka kafka-ui kafka-exporter` |
-| `make up-obs` | `docker compose up -d prometheus loki tempo otel-collector alloy grafana` |
-| `make up-llm` | `docker compose up -d llm` |
-| `make up-apps` | `docker compose up -d agent-toolbox agent-runtime mcp-inspector homelab-ui` |
-| `make down-apps` | `docker compose stop agent-toolbox agent-runtime mcp-inspector homelab-ui` |
-| `make ps` | `docker compose ps` |
-| `make logs [S=…] [TAIL=…]` | `docker compose logs -f --tail=200` |
-| `make stats` | `docker stats` |
-| `make health` | `docker compose exec -T caddy wget -q -T 5 -O - <health URL>` per service, `curl https://<HOMELAB_DOMAIN>/healthz` |
+| `make diff [R=…\|G=…]` | `helmfile [-l name=<release>\|-l group=<group>] diff` |
+| `make apply [R=…\|G=…]` | `helmfile [-l name=<release>\|-l group=<group>] apply` |
+| `make sync [R=…\|G=…]` | `helmfile [-l name=<release>\|-l group=<group>] sync` |
+| `make template [R=…\|G=…]` | `helmfile [-l name=<release>\|-l group=<group>] template` |
+| `make releases` | `helm list -A` |
+| `make rollback R=…` | `helm -n homelab rollback <release>` |
+| `make status` | `kubectl -n homelab get pods -o wide` |
+| `make logs R=… [TAIL=…]` | `kubectl -n homelab logs -f --tail=200 -l app.kubernetes.io/instance=<release> --all-containers --prefix` |
+| `make events` | `kubectl -n homelab get events --sort-by=.lastTimestamp \| tail -n 40` |
+| `make top` | `kubectl -n homelab top pods` |
 | `make verify` | `./scripts/verify.sh` |
-| `make targets` | `docker compose exec -T caddy wget -q -O - http://prometheus:9090/api/v1/targets` |
-| `make volumes` | `docker system df -v` |
 | `make users` | `./scripts/users.sh list` |
 | `make user-add ACCOUNT=…` | `./scripts/users.sh add <name>` |
 | `make user-password ACCOUNT=…` | `./scripts/users.sh password <name>` |
@@ -1149,24 +1090,7 @@ sudo reboot
 | `make user-enable ACCOUNT=…` | `./scripts/users.sh enable <name>` |
 | `make user-unlock ACCOUNT=…` | `./scripts/users.sh unlock <name>` |
 | `make user-remove ACCOUNT=…` | `./scripts/users.sh remove <name>` |
-| `make sessions-revoke` | `./scripts/secrets.sh --rotate OAUTH2_PROXY_COOKIE_SECRET && docker compose up -d --force-recreate oauth2-proxy && ./scripts/users.sh logout-all` |
-| `make migrate` | `docker compose run --rm db-migrate migrate && docker compose kill -s SIGUSR1 postgrest` |
-| `make migrate-status` | `docker compose run --rm db-migrate status` |
-| `make migrate-rollback` | `docker compose run --rm db-migrate rollback` |
-| `make migration-new NAME=…` | create `repository/postgres/migrations/<NNN>_<name>.sql` |
-| `make db-passwords-check` | `./scripts/db-passwords.sh check` |
-| `make postgres-password-sync` | `./scripts/db-passwords.sh postgres-sync` |
-| `make mongo-password-sync` | `./scripts/db-passwords.sh mongo-sync` |
-| `make sh S=…` | `docker compose exec <service> sh` |
-| `make psql` | `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'` |
-| `make mongosh` | `docker compose exec mongodb sh -c 'mongosh -u … -p … --authenticationDatabase admin'` |
-| `make topics` · `topic-create` · `topic-describe` · `consume` · `groups` | see [Kafka](#kafka) |
-| `make reload-prometheus` | `docker compose kill -s SIGHUP prometheus` |
-| `make reload-alloy` | `docker compose kill -s SIGHUP alloy` |
-| `make llm-status` · `llm-running` · `llm-ask` · `llm-logs` · `llm-down` | see [LLM and agent](#llm-and-agent) |
-| `make backup` | `make backup-postgres && make backup-mongo` |
-| `make backup-postgres` · `backup-mongo` | `pg_dump` / `mongodump` into `backups/`, see [Backups and restores](#backups-and-restores) |
-| `make restore-postgres FILE=… [DB=keycloak]` | `pg_restore --clean --if-exists` |
-| `make restore-mongo FILE=…` | `mongorestore --archive --gzip --drop` |
-| `make clean` | `./scripts/down.sh --volumes` → `docker compose down --remove-orphans --volumes` |
-| `make prune` | `docker image prune -f && docker builder prune -f` |
+| `make sessions-revoke` | `./scripts/secrets.sh rotate oauth2-proxy cookie-secret && ./scripts/users.sh logout-all` |
+| `make sh R=…` | `kubectl -n homelab exec -it deploy/<release> -- sh` |
+| `make psql` | `kubectl -n homelab exec -it <postgres primary pod> -c postgres -- psql -d homelab` |
+| `make destroy` | `helmfile destroy` |

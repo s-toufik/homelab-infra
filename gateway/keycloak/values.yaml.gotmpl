@@ -1,0 +1,72 @@
+# Keycloak: sign-in accounts, stored in PostgreSQL database "keycloak". Its pages are served by
+# Caddy on :8443 (/admin blocked); accounts are managed from the server's terminal (scripts/users.sh).
+image:
+  repository: quay.io/keycloak/keycloak
+  tag: {{ .Values.images.keycloak | quote }}
+
+args: [start]
+
+env:
+  KC_DB: postgres
+  KC_DB_URL: jdbc:postgresql://postgres-rw:5432/keycloak
+  KC_DB_USERNAME: keycloak
+  KC_HOSTNAME: https://{{ .Values.domain }}:8443
+  KC_HTTP_ENABLED: "true"
+  KC_PROXY_HEADERS: xforwarded
+  KC_HEALTH_ENABLED: "true"
+secretEnv:
+  KC_DB_PASSWORD: { secret: pg-role-keycloak, key: password }
+  # Used once, when the database is empty; scripts/users.sh signs in with it afterwards
+  KC_BOOTSTRAP_ADMIN_USERNAME: { secret: keycloak-admin, key: username }
+  KC_BOOTSTRAP_ADMIN_PASSWORD: { secret: keycloak-admin, key: password }
+
+ports:
+  - { name: http, port: 8080 }
+  - { name: management, port: 9000 }   # health
+
+probes:
+  startup:
+    httpGet: { path: /health/started, port: management }
+    periodSeconds: 5
+    failureThreshold: 60
+  readiness:
+    httpGet: { path: /health/ready, port: management }
+    periodSeconds: 10
+  liveness:
+    httpGet: { path: /health/live, port: management }
+    periodSeconds: 20
+    failureThreshold: 6
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { memory: 1Gi }
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 0
+
+configFiles:
+  sync:
+    mountPath: /opt/keycloak/sync
+    files:
+      sync.sh: |
+        {{- readFile "sync.sh" | nindent 8 }}
+
+# After every install and upgrade: applies the "homelab" realm (settings, password policy, the
+# oauth2-proxy and Grafana clients with their secrets) from ./sync.sh. Never touches accounts.
+jobs:
+  sync:
+    command: [/bin/bash, /opt/keycloak/sync/sync.sh]
+    configFiles: [sync]
+    env:
+      KEYCLOAK_URL: http://keycloak:8080
+      HOMELAB_DOMAIN: {{ .Values.domain | quote }}
+    secretEnv:
+      KEYCLOAK_ADMIN_USER: { secret: keycloak-admin, key: username }
+      KEYCLOAK_ADMIN_PASSWORD: { secret: keycloak-admin, key: password }
+      OAUTH2_PROXY_CLIENT_SECRET: { secret: oauth2-proxy, key: client-secret }
+      GRAFANA_OIDC_CLIENT_SECRET: { secret: grafana-oidc, key: client-secret }
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { memory: 384Mi }

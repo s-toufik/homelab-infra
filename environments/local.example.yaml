@@ -1,0 +1,5 @@
+# `make local` writes environments/local.yaml from this server's Tailscale status (git-ignored).
+# This machine's Tailscale name: homelab-ui is https://<domain>/, sign-in https://<domain>:8443/
+domain: <machine>.<tailnet>.ts.net
+# This machine's Tailscale address (`tailscale ip -4`): every published port listens on it only
+tailscaleIP: <tailscale-ip>

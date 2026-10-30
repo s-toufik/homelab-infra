@@ -251,8 +251,3 @@
 		}
 	}
 }
-
-# Old homelab-ui address
-:8002 {
-	redir https://{$HOMELAB_DOMAIN}{uri} permanent
-}

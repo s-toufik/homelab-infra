@@ -21,16 +21,15 @@ Browser ── HTTPS ──► caddy ── "signed in?" ──► oauth2-proxy 
                             kafka-ui, alloy, loki, tempo, kafka-exporter (signed in)
   :8090                     llm             (signed in, or `Authorization: Bearer <LLM_GATEWAY_API_KEY>`)
   :6274                     mcp-inspector   (signed in; Host rewritten to mcp-inspector:6274) ─► agent-toolbox
-  :8002                     redirect to :443
 ```
 
 ## Certificate
 
-`HOMELAB_DOMAIN` must be this machine's Tailscale name (`<machine>.<tailnet>.ts.net`), with MagicDNS and HTTPS certificates turned on in the Tailscale admin console. Caddy gets the certificate from the host's Tailscale daemon through `/var/run/tailscale/tailscaled.sock`, at the first HTTPS connection. Devices need Tailscale to open the homelab.
+`HOMELAB_DOMAIN` is this machine's Tailscale name (`<machine>.<tailnet>.ts.net`, `domain` in `environments/local.yaml`), with MagicDNS and HTTPS certificates turned on in the Tailscale admin console. Caddy gets the certificate from the server's Tailscale daemon through its socket (mounted into the pod), at the first HTTPS connection. Devices need Tailscale to open the homelab.
 
-Inside Docker, Caddy also answers to `HOMELAB_DOMAIN`, so oauth2-proxy and Grafana reach Keycloak's public address through Caddy with the same valid certificate.
+Inside the cluster, DNS answers `HOMELAB_DOMAIN` with Caddy's Service (the `coredns-custom` ConfigMap this release adds to `kube-system`), so oauth2-proxy and Grafana reach Keycloak's public address through Caddy with the same valid certificate.
 
-Caddy is on two networks: `default`, with everything else, and `agents`, the isolated network of agent-runtime, agent-toolbox and the MCP Inspector (see the root `compose.yml`).
+Caddy's ports are host ports bound to the Tailscale address only: the tailnet's devices reach them, nothing else on the network does.
 
 ## Session
 
@@ -41,6 +40,6 @@ Caddy is on two networks: `default`, with everything else, and `agents`, the iso
 ## Adding a route or a tool
 
 - An API for homelab-ui: a `handle_path /api/<name>/*` block inside `handle /api/*` (it is then behind the sign-in check), limited to the paths the UI needs, and an `api` path for the service in homelab-ui.
-- A web tool: a site `{$HOMELAB_DOMAIN}:<port> { import signed_in_tool <service>:<port> }`, the port in `compose.yml`, and remove the service's own `ports:`.
+- A web tool: a site `{$HOMELAB_DOMAIN}:<port> { import signed_in_tool <service>:<port> }`, and the port in [`values.yaml.gotmpl`](values.yaml.gotmpl) with `hostPort`.
 
-`make validate` runs `caddy validate`; apply an edited `Caddyfile` with `make recreate S=caddy`.
+`make validate` runs `caddy validate`; apply an edited `Caddyfile` with `make apply R=caddy` (the pod restarts with it).

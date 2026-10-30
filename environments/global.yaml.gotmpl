@@ -1,0 +1,11 @@
+# Given to every homelab release as `global` (see kube-charts' app chart)
+{{- if not (regexMatch "^[a-z0-9-]+\\.[a-z0-9-]+\\.ts\\.net$" (.Values.domain | default "")) }}
+{{- fail "environments/local.yaml: domain must be this machine's Tailscale name, <machine>.<tailnet>.ts.net (run: make local)" }}
+{{- end }}
+{{- if not (regexMatch "^100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.[0-9]{1,3}\\.[0-9]{1,3}$" (.Values.tailscaleIP | default "")) }}
+{{- fail "environments/local.yaml: tailscaleIP must be this machine's Tailscale address, 100.64.0.0/10 (run: make local)" }}
+{{- end }}
+global:
+  domain: {{ .Values.domain | quote }}
+  hostIP: {{ .Values.tailscaleIP | quote }}
+  timezone: {{ .Values.timezone | quote }}
