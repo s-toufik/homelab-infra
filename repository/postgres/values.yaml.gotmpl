@@ -1,0 +1,37 @@
+# PostgreSQL (kube-charts pg-cluster, run by CloudNativePG): database "homelab" and Keycloak's.
+# The operator keeps the roles below as declared and applies their passwords from the Secrets
+# (scripts/secrets.sh); the Tasker schema itself comes from repository/postgres/migrations.
+imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.images.postgres }}
+
+storage:
+  size: 20Gi
+
+parameters:
+  shared_buffers: 1GB
+  effective_cache_size: 3GB
+  work_mem: 16MB
+  maintenance_work_mem: 256MB
+  max_connections: "200"
+  wal_compression: "on"
+
+resources:
+  requests: { cpu: 250m, memory: 1Gi }
+  limits: { memory: 4Gi }
+
+roles:
+  # Tasker: PostgREST logs in as postgrest and acts as tasker_web (row-level security per user)
+  - name: tasker_web
+    login: false
+  - name: postgrest
+    login: true
+    inherit: false
+    inRoles: [tasker_web]
+    passwordSecret: { name: pg-role-postgrest }
+  # Keycloak's own database
+  - name: keycloak
+    login: true
+    passwordSecret: { name: pg-role-keycloak }
+
+databases:
+  - name: keycloak
+    owner: keycloak

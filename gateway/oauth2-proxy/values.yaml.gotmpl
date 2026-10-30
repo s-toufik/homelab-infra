@@ -1,0 +1,49 @@
+# oauth2-proxy: answers Caddy's "is this request signed in?" from the session cookie, and handles
+# sign-in and sign-out with Keycloak. Reached only through Caddy.
+image:
+  repository: quay.io/oauth2-proxy/oauth2-proxy
+  tag: {{ .Values.images.oauth2Proxy | quote }}
+
+secretEnv:
+  OAUTH2_PROXY_CLIENT_SECRET: { secret: oauth2-proxy, key: client-secret }
+  OAUTH2_PROXY_COOKIE_SECRET: { secret: oauth2-proxy, key: cookie-secret }
+
+args:
+  - --provider=keycloak-oidc
+  - --client-id=oauth2-proxy
+  - --oidc-issuer-url=https://{{ .Values.domain }}:8443/realms/homelab
+  - --redirect-url=https://{{ .Values.domain }}/oauth2/callback
+  - --backend-logout-url=https://{{ .Values.domain }}:8443/realms/homelab/protocol/openid-connect/logout?id_token_hint={id_token}
+  - --code-challenge-method=S256
+  - --email-domain=*
+  - --http-address=0.0.0.0:4180
+  - --upstream=static://202
+  - --reverse-proxy=true
+  - --set-xauthrequest=true
+  - --skip-provider-button=true
+  - --cookie-name=__Host-homelab
+  - --cookie-secure=true
+  - --cookie-samesite=lax
+  - --cookie-expire=8h
+  - --whitelist-domain={{ .Values.domain }}
+  - --whitelist-domain={{ .Values.domain }}:*
+
+ports:
+  - { name: http, port: 4180 }
+
+probes:
+  readiness:
+    httpGet: { path: /ping, port: http }
+  liveness:
+    httpGet: { path: /ping, port: http }
+    periodSeconds: 20
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+securityContext:
+  readOnlyRootFilesystem: true

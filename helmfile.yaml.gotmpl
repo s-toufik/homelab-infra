@@ -1,0 +1,107 @@
+# The release train: every release on the server, its chart and its version.
+#   helmfile apply                     everything (only what changed is upgraded)
+#   helmfile -l name=homelab-ui apply  one release
+#   helmfile -l group=gateway apply    one group
+# Versions live in environments/versions.yaml; the server's name and address in
+# environments/local.yaml (git-ignored, `make local`). Before a release that uses Secrets is
+# deployed, `scripts/secrets.sh check` makes sure they exist.
+
+environments:
+  default:
+    values:
+      - environments/versions.yaml
+      - environments/default.yaml
+      - environments/local.yaml
+    missingFileHandler: Error
+
+---
+repositories:
+  - name: homelab
+    url: ghcr.io/s-toufik/charts
+    oci: true
+  - name: cnpg
+    url: https://cloudnative-pg.github.io/charts
+  - name: stakater
+    url: https://stakater.github.io/stakater-charts
+
+helmDefaults:
+  wait: true
+  waitForJobs: true
+  timeout: 600
+  createNamespace: true
+
+releases:
+  # ---------- platform: operators every other release relies on ----------
+  - name: reloader
+    namespace: reloader
+    chart: stakater/reloader
+    version: {{ .Values.charts.reloader }}
+    labels: { group: platform }
+
+  - name: cnpg
+    namespace: cnpg-system
+    chart: cnpg/cloudnative-pg
+    version: {{ .Values.charts.cloudnativePg }}
+    labels: { group: platform }
+
+  # ---------- repository: databases ----------
+  - name: postgres
+    namespace: homelab
+    chart: homelab/pg-cluster
+    version: {{ .Values.charts.pgCluster }}
+    labels: { group: repository }
+    needs: [cnpg-system/cnpg]
+    # Its kinds (Cluster, Database) come from the cnpg release
+    disableValidationOnInstall: true
+    values:
+      - environments/global.yaml.gotmpl
+      - repository/postgres/values.yaml.gotmpl
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-postgrest, pg-role-keycloak] }
+      # Helm can't tell when a database is ready: wait for the operator to say so
+      - { events: [postsync], showlogs: true, command: kubectl, args: [-n, homelab, wait, --for=condition=Ready, clusters.postgresql.cnpg.io/postgres, --timeout=10m] }
+
+  # ---------- gateway: HTTPS and one sign-in for every web interface ----------
+  - name: caddy
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: gateway }
+    values:
+      - environments/global.yaml.gotmpl
+      - gateway/caddy/values.yaml.gotmpl
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, tasker-gateway, llm-gateway] }
+
+  - name: keycloak
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: gateway }
+    needs: [homelab/postgres]
+    values:
+      - environments/global.yaml.gotmpl
+      - gateway/keycloak/values.yaml.gotmpl
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-keycloak, keycloak-admin, oauth2-proxy, grafana-oidc] }
+
+  - name: oauth2-proxy
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: gateway }
+    needs: [homelab/keycloak, homelab/caddy]
+    values:
+      - environments/global.yaml.gotmpl
+      - gateway/oauth2-proxy/values.yaml.gotmpl
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, oauth2-proxy] }
+
+  # ---------- apps: released by their own repositories (chart = app + its devops/helm/values.yml) ----------
+  - name: homelab-ui
+    namespace: homelab
+    chart: homelab/homelab-ui
+    version: {{ .Values.apps.homelabUi }}
+    labels: { group: apps }
+    values:
+      - environments/global.yaml.gotmpl

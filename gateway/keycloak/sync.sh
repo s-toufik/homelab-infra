@@ -1,7 +1,8 @@
 #!/bin/bash
-# Applies the "homelab" realm configuration on every `make up`: creates what is missing and resets
-# the settings below, so the realm always matches this file (client secrets included).
-# Accounts are never created or changed here — that is `make user-*`.
+# Applies the "homelab" realm configuration after every install and upgrade of the keycloak release
+# (its `sync` job): creates what is missing and resets the settings below, so the realm always
+# matches this file (client secrets included). Accounts are never created or changed here — that is
+# `make user-*`.
 set -euo pipefail
 
 kc="${KCADM:-/opt/keycloak/bin/kcadm.sh}"
@@ -14,7 +15,7 @@ mkdir -p "$work"
 k() { "$kc" "$@" --config "$cfg"; }
 
 # Keycloak can still answer 503 for a short while after its health check turns green.
-attempts=60
+attempts=150
 for ((i = 1; i <= attempts; i++)); do
   if output="$("$kc" config credentials --config "$cfg" --server "$KEYCLOAK_URL" --realm master \
     --user "$KEYCLOAK_ADMIN_USER" --password "$KEYCLOAK_ADMIN_PASSWORD" 2>&1)"; then

@@ -1,113 +1,169 @@
 #!/usr/bin/env bash
-# Fills every password and secret in .env with a random value (only those still empty or
-# "changeme"), then lists what is left to set by hand.
-#   ./scripts/secrets.sh                       fill missing secrets
-#   ./scripts/secrets.sh --rotate <NAME>       replace one, then run `make up` to apply it
-#                                              (OAUTH2_PROXY_COOKIE_SECRET signs everyone out)
+# The homelab's passwords and keys, as Kubernetes Secrets in namespace homelab (encrypted on disk
+# by k3s). Values are generated here or typed at a hidden prompt: never in git, never on a
+# command line.
+#   ./scripts/secrets.sh                        create what is missing (safe to re-run)
+#   ./scripts/secrets.sh check [secret…]        exit 1 if a Secret or key is missing (helmfile runs it
+#                                               before each release, with the Secrets it uses)
+#   ./scripts/secrets.sh list                   Secrets and their keys, without values
+#   ./scripts/secrets.sh set <secret> <key>     type a value yourself (e.g. agent-runtime llm-api-key)
+#   ./scripts/secrets.sh rotate <secret> <key>  replace a generated value; the pods using it restart
 source "$(dirname "$0")/_common.sh"
 
-[[ -f .env ]] || { red "Missing .env — run: make env"; exit 1; }
-command -v openssl >/dev/null || { red "openssl not found"; exit 1; }
-
-# name:bytes — values are hex, so they are safe in URLs, connection strings and shells
-SECRETS=(
-  POSTGRES_PASSWORD:24
-  MONGO_ROOT_PASSWORD:24
-  GRAFANA_ADMIN_PASSWORD:24
-  POSTGREST_PASSWORD:24
-  KEYCLOAK_ADMIN_PASSWORD:24
-  KEYCLOAK_DB_PASSWORD:24
-  OAUTH2_PROXY_CLIENT_SECRET:32
-  OAUTH2_PROXY_COOKIE_SECRET:16
-  TASKER_GATEWAY_SECRET:32
-  GRAFANA_OIDC_CLIENT_SECRET:32
-  LLM_GATEWAY_API_KEY:32
+# secret|type|keys — key:N = N random bytes (hex), key=text = fixed, key? = typed with `set`
+SPECS=(
+  "pg-role-postgrest|kubernetes.io/basic-auth|username=postgrest password:24"
+  "pg-role-keycloak|kubernetes.io/basic-auth|username=keycloak password:24"
+  "keycloak-admin|Opaque|username=admin password:24"
+  "oauth2-proxy|Opaque|client-secret:32 cookie-secret:16"
+  "grafana-oidc|Opaque|client-secret:32"
+  "grafana-admin|Opaque|username=admin password:24"
+  "tasker-gateway|Opaque|secret:32"
+  "llm-gateway|Opaque|api-key:32"
+  "mongodb|Opaque|username=root password:24"
+  "agent-runtime|Opaque|llm-api-key?"
 )
-# Database passwords are excluded: changing them needs the running roles updated first.
+
+# What may be replaced while running. The others are read once, when their database is created.
 ROTATABLE=(
-  OAUTH2_PROXY_COOKIE_SECRET
-  OAUTH2_PROXY_CLIENT_SECRET
-  GRAFANA_OIDC_CLIENT_SECRET
-  TASKER_GATEWAY_SECRET
-  LLM_GATEWAY_API_KEY
+  pg-role-postgrest/password
+  pg-role-keycloak/password
+  oauth2-proxy/client-secret
+  oauth2-proxy/cookie-secret
+  grafana-oidc/client-secret
+  tasker-gateway/secret
+  llm-gateway/api-key
 )
 
-# Passwords a service reads only when its volume is first created: generating a new one for an
-# existing volume would lock the stack out of it, so those are left for you to set.
-VOLUME_BOUND=(
-  POSTGRES_PASSWORD:homelab_postgres-data
-  MONGO_ROOT_PASSWORD:homelab_mongodb-data
-  GRAFANA_ADMIN_PASSWORD:homelab_grafana-data
-)
-
-volume_of() {
+spec_of() {
   local spec
-  for spec in "${VOLUME_BOUND[@]}"; do
-    if [[ "${spec%%:*}" == "$1" ]]; then
-      printf '%s' "${spec#*:}"
-      return 0
-    fi
+  for spec in "${SPECS[@]}"; do
+    [[ "${spec%%|*}" == "$1" ]] && { printf '%s' "$spec"; return 0; }
   done
-  return 0
+  return 1
 }
 
-volume_exists() { command -v docker >/dev/null && docker volume inspect "$1" >/dev/null 2>&1; }
+# Current value of a key, base64-encoded as stored ("" when absent)
+stored() { k get secret "$1" -o "jsonpath={.data.$2}" 2>/dev/null || true; }
 
-current_value() { grep -E "^$1=" .env | tail -n1 | cut -d= -f2- || true; }
+b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
 
-set_value() {
-  local key="$1" value="$2" tmp
-  tmp="$(mktemp .env.XXXXXX)"
-  chmod 600 "$tmp"
-  if grep -qE "^${key}=" .env; then
-    awk -v k="$key" -v v="$value" 'index($0, k "=") == 1 { print k "=" v; next } { print }' .env >"$tmp"
-  else
-    cat .env >"$tmp"
-    printf '%s=%s\n' "$key" "$value" >>"$tmp"
-  fi
-  mv "$tmp" .env
+# Writes Secret <name> with every key of its spec: keeps the stored values, generates missing
+# ones, and takes <key>=<value> overrides from the remaining arguments. The manifest goes to
+# kubectl on stdin.
+write_secret() {
+  local name="$1"; shift
+  local spec type keys field key value override labels
+  spec="$(spec_of "$name")"
+  type="$(cut -d'|' -f2 <<<"$spec")"
+  keys="$(cut -d'|' -f3 <<<"$spec")"
+  labels="    app.kubernetes.io/managed-by: homelab-secrets"
+  # CloudNativePG applies a changed role password at once
+  [[ "$name" == pg-role-* ]] && labels+=$'\n    cnpg.io/reload: "true"'
+  {
+    printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n%s\ntype: %s\ndata:\n' \
+      "$name" "$NAMESPACE" "$labels" "$type"
+    for field in $keys; do
+      key="${field%%[:=?]*}"
+      value=""
+      for override in "$@"; do
+        [[ "${override%%=*}" == "$key" ]] && value="$(b64 "${override#*=}")"
+      done
+      [[ -n "$value" ]] || value="$(stored "$name" "$key")"
+      if [[ -z "$value" ]]; then
+        case "$field" in
+          *:*) value="$(b64 "$(openssl rand -hex "${field#*:}")")" ;;
+          *=*) value="$(b64 "${field#*=}")" ;;
+          *\?) continue ;;   # typed later with `set`
+        esac
+      fi
+      printf '  %s: %s\n' "$key" "$value"
+    done
+  } | kubectl apply --server-side --force-conflicts --field-manager=homelab-secrets -f - >/dev/null
 }
 
-rotate=""
-if [[ "${1:-}" == "--rotate" ]]; then
-  rotate="${2:-}"
-  printf '%s\n' "${ROTATABLE[@]}" | grep -qx "$rotate" ||
-    { red "Only these can be rotated safely: ${ROTATABLE[*]}"; exit 1; }
-fi
+missing_keys() { # secret → keys it lacks, one per line
+  local spec field key
+  spec="$(spec_of "$1")"
+  for field in $(cut -d'|' -f3 <<<"$spec"); do
+    key="${field%%[:=?]*}"
+    [[ -n "$(stored "$1" "$key")" ]] || echo "$key"
+  done
+}
 
-changed=0
-for spec in "${SECRETS[@]}"; do
-  key="${spec%%:*}"
-  bytes="${spec#*:}"
-  value="$(current_value "$key")"
-  if [[ -n "$rotate" ]]; then
-    [[ "$key" == "$rotate" ]] || continue
-  elif [[ -n "$value" && "$value" != "changeme" ]]; then
-    continue
-  fi
-  volume="$(volume_of "$key")"
-  if [[ -n "$volume" ]] && volume_exists "$volume"; then
-    yellow "  ! $key not generated: volume $volume already exists and keeps the password it was created with."
-    echo "      Put that password in .env, or set a new one and apply it with make postgres-password-sync / make mongo-password-sync."
-    continue
-  fi
-  set_value "$key" "$(openssl rand -hex "$bytes")"
-  green "  ✓ $key generated"
-  changed=$((changed + 1))
-done
+ensure_namespace() {
+  k get namespace "$NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$NAMESPACE" >/dev/null
+}
 
-chmod 600 .env
-(( changed > 0 )) || green "  ✓ every generated secret is already set"
-if [[ -n "$rotate" ]]; then
-  yellow "  ! run 'make up' to apply the new $rotate"
-  exit 0
-fi
+require_cluster
+action="${1:-create}"
 
-left="$(grep -E '^[A-Z0-9_]+=((changeme)?|.*<[a-z-]+>.*)$' .env | cut -d= -f1 | grep -vx 'LLM_API_KEY' || true)"
-if grep -qE '^HOMELAB_DOMAIN=.*your-tailnet' .env; then left="HOMELAB_DOMAIN"$'\n'"$left"; fi
-if [[ -n "${left//$'\n'/}" ]]; then
-  yellow "  ! still to set by hand in .env:"
-  printf '%s\n' "$left" | awk 'NF && !seen[$0]++ { print "      " $0 }'
-else
-  green "  ✓ nothing left to set by hand — next: make validate"
-fi
+case "$action" in
+  create)
+    command -v openssl >/dev/null || { red "openssl not found"; exit 1; }
+    ensure_namespace
+    for spec in "${SPECS[@]}"; do
+      name="${spec%%|*}"
+      if [[ -z "$(missing_keys "$name")" ]]; then
+        green "  ✓ $name"
+        continue
+      fi
+      write_secret "$name"
+      left="$(missing_keys "$name")"
+      if [[ -n "$left" ]]; then
+        for key in $left; do yellow "  ! $name/$key is yours to type: make secret-set SECRET=$name KEY=$key"; done
+      else
+        green "  ✓ $name created"
+      fi
+    done
+    ;;
+  check)
+    shift
+    names=("$@")
+    if (( ${#names[@]} == 0 )); then
+      for spec in "${SPECS[@]}"; do names+=("${spec%%|*}"); done
+    fi
+    problems=0
+    for name in "${names[@]}"; do
+      spec_of "$name" >/dev/null || { red "Unknown Secret '$name'"; exit 1; }
+      left="$(missing_keys "$name" | paste -sd ' ' -)"
+      [[ -z "$left" ]] && continue
+      red "  ✗ Secret $name lacks: $left"
+      problems=$((problems + 1))
+    done
+    (( problems == 0 )) || { red "Run ./scripts/secrets.sh (and secrets.sh set … for typed values) first."; exit 1; }
+    ;;
+  list)
+    k get secrets -l app.kubernetes.io/managed-by=homelab-secrets \
+      -o go-template='{{range .items}}{{.metadata.name}}:{{range $k, $v := .data}} {{$k}}{{end}}{{"\n"}}{{end}}'
+    ;;
+  set)
+    name="${2:-}" key="${3:-}"
+    spec_of "$name" >/dev/null || { red "Unknown Secret '$name' (see the list at the top of $0)"; exit 1; }
+    cut -d'|' -f3 <<<"$(spec_of "$name")" | tr ' ' '\n' | sed 's/[:=?].*//' | grep -x -- "$key" >/dev/null ||
+      { red "Secret $name has no key '$key'"; exit 1; }
+    read -r -s -p "Value for $name/$key: " first; echo
+    read -r -s -p "Repeat it: " second; echo
+    [[ -n "$first" && "$first" == "$second" ]] || { red "Empty, or the two values differ."; exit 1; }
+    ensure_namespace
+    write_secret "$name" "$key=$first"
+    unset first second
+    green "  ✓ $name/$key set; the pods using it restart"
+    ;;
+  rotate)
+    name="${2:-}" key="${3:-}"
+    printf '%s\n' "${ROTATABLE[@]}" | grep -qx "$name/$key" ||
+      { red "Only these can be rotated while running: ${ROTATABLE[*]}"; exit 1; }
+    field="$(cut -d'|' -f3 <<<"$(spec_of "$name")" | tr ' ' '\n' | grep "^$key:")"
+    write_secret "$name" "$key=$(openssl rand -hex "${field#*:}")"
+    green "  ✓ $name/$key replaced; the pods using it restart"
+    case "$name/$key" in
+      oauth2-proxy/client-secret | grafana-oidc/client-secret)
+        yellow "  ! give Keycloak the new client secret: make sync R=keycloak" ;;
+    esac
+    ;;
+  *)
+    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+    exit 1
+    ;;
+esac

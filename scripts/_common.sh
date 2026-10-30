@@ -9,44 +9,38 @@ red()   { printf '\033[31m%s\033[0m\n' "$*" >&2; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
 
-load_env() {
-  if [[ ! -f .env ]]; then
-    red "Missing .env — create it with: cp .env.example .env  (then edit the passwords)"
-    exit 1
-  fi
-  # Export so every included compose file sees the variables
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
+NAMESPACE=homelab
+k() { kubectl --namespace "$NAMESPACE" "$@"; }
+
+require_cluster() {
+  command -v kubectl >/dev/null || { red "kubectl not found: install k3s (DevOps guide, Install Kubernetes)"; exit 1; }
+  kubectl version --request-timeout=5s >/dev/null 2>&1 ||
+    { red "Kubernetes doesn't answer: is k3s running (systemctl status k3s) and KUBECONFIG=/etc/rancher/k3s/k3s.yaml set?"; exit 1; }
 }
 
-# Runs Keycloak's admin CLI inside the keycloak container, signed in as the bootstrap admin.
-# The admin password travels on stdin, so it never appears in the host's process list or in
-# `docker inspect`. Arguments are passed to kcadm.sh verbatim.
+# A value of environments/local.yaml (written by `make local`)
+local_value() {
+  [[ -f environments/local.yaml ]] || { red "Missing environments/local.yaml — run: make local"; exit 1; }
+  awk -v key="$1" -F': *' '$1 == key { print $2 }' environments/local.yaml | tr -d '"'
+}
+
+# The pod running the PostgreSQL primary
+postgres_primary() {
+  k get pod -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o name | head -n1
+}
+
+# Runs Keycloak's admin CLI inside the keycloak pod, signed in as its bootstrap admin: the
+# password is read there, from the pod's own environment, and never reaches this machine.
+# Arguments are passed to kcadm.sh verbatim.
 kcadm() {
-  printf '%s\n' "$KEYCLOAK_ADMIN_PASSWORD" |
-    docker compose exec -T -e KCADM_ADMIN="${KEYCLOAK_ADMIN_USER:-admin}" keycloak bash -c '
-      set -e
-      IFS= read -r admin_password
-      kc=/opt/keycloak/bin/kcadm.sh
-      cfg=/tmp/kcadm-$$.config
-      trap "rm -f $cfg" EXIT
-      login=$("$kc" config credentials --config "$cfg" --server http://localhost:8080 \
-        --realm master --user "$KCADM_ADMIN" --password "$admin_password" 2>&1) ||
-        { echo "$login" >&2; exit 1; }
-      "$kc" "$@" --config "$cfg"
-    ' kcadm "$@"
-}
-
-RELOADABLE=(prometheus alloy)
-
-reload_configs() {
-  local running service
-  running="$(docker compose ps --status running --services)"
-  for service in "${RELOADABLE[@]}"; do
-    if grep -qx "$service" <<<"$running"; then
-      docker compose kill -s SIGHUP "$service" >/dev/null && green "Reloaded $service configuration."
-    fi
-  done
+  k exec -i deploy/keycloak -c keycloak -- bash -c '
+    set -e
+    kc=/opt/keycloak/bin/kcadm.sh
+    cfg=/tmp/kcadm-$$.config
+    trap "rm -f $cfg" EXIT
+    login=$("$kc" config credentials --config "$cfg" --server http://localhost:8080 --realm master \
+      --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" 2>&1) ||
+      { echo "$login" >&2; exit 1; }
+    "$kc" "$@" --config "$cfg"
+  ' kcadm "$@"
 }
