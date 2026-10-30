@@ -13,8 +13,22 @@ mkdir -p "$work"
 
 k() { "$kc" "$@" --config "$cfg"; }
 
-"$kc" config credentials --config "$cfg" --server "$KEYCLOAK_URL" --realm master \
-  --user "$KEYCLOAK_ADMIN_USER" --password "$KEYCLOAK_ADMIN_PASSWORD" >/dev/null
+# Keycloak can still answer 503 for a short while after its health check turns green.
+attempts=60
+for ((i = 1; i <= attempts; i++)); do
+  if output="$("$kc" config credentials --config "$cfg" --server "$KEYCLOAK_URL" --realm master \
+    --user "$KEYCLOAK_ADMIN_USER" --password "$KEYCLOAK_ADMIN_PASSWORD" 2>&1)"; then
+    echo "signed in to Keycloak as $KEYCLOAK_ADMIN_USER"
+    break
+  fi
+  if ((i == attempts)); then
+    echo "could not sign in to Keycloak after $attempts attempts, last answer:" >&2
+    echo "$output" >&2
+    exit 1
+  fi
+  echo "Keycloak not ready yet (attempt $i/$attempts): ${output##*$'\n'}"
+  sleep 2
+done
 
 if ! k get "realms/$realm" >/dev/null 2>&1; then
   k create realms -s realm="$realm" -s enabled=true

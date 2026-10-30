@@ -32,6 +32,23 @@ ROTATABLE=(
   LLM_GATEWAY_API_KEY
 )
 
+# Passwords a service reads only when its volume is first created: generating a new one for an
+# existing volume would lock the stack out of it, so those are left for you to set.
+VOLUME_BOUND=(
+  POSTGRES_PASSWORD:homelab_postgres-data
+  MONGO_ROOT_PASSWORD:homelab_mongodb-data
+  GRAFANA_ADMIN_PASSWORD:homelab_grafana-data
+)
+
+volume_of() {
+  local spec
+  for spec in "${VOLUME_BOUND[@]}"; do
+    [[ "${spec%%:*}" == "$1" ]] && { printf '%s' "${spec#*:}"; return; }
+  done
+}
+
+volume_exists() { command -v docker >/dev/null && docker volume inspect "$1" >/dev/null 2>&1; }
+
 current_value() { grep -E "^$1=" .env | tail -n1 | cut -d= -f2- || true; }
 
 set_value() {
@@ -62,6 +79,12 @@ for spec in "${SECRETS[@]}"; do
   if [[ -n "$rotate" ]]; then
     [[ "$key" == "$rotate" ]] || continue
   elif [[ -n "$value" && "$value" != "changeme" ]]; then
+    continue
+  fi
+  volume="$(volume_of "$key")"
+  if [[ -n "$volume" ]] && volume_exists "$volume"; then
+    yellow "  ! $key not generated: volume $volume already exists and keeps the password it was created with."
+    echo "      Put that password in .env, or set a new one and apply it with make postgres-password-sync / make mongo-password-sync."
     continue
   fi
   set_value "$key" "$(openssl rand -hex "$bytes")"
