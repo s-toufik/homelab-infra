@@ -43,8 +43,12 @@ VOLUME_BOUND=(
 volume_of() {
   local spec
   for spec in "${VOLUME_BOUND[@]}"; do
-    [[ "${spec%%:*}" == "$1" ]] && { printf '%s' "${spec#*:}"; return; }
+    if [[ "${spec%%:*}" == "$1" ]]; then
+      printf '%s' "${spec#*:}"
+      return 0
+    fi
   done
+  return 0
 }
 
 volume_exists() { command -v docker >/dev/null && docker volume inspect "$1" >/dev/null 2>&1; }
@@ -100,10 +104,10 @@ if [[ -n "$rotate" ]]; then
 fi
 
 left="$(grep -E '^[A-Z0-9_]+=((changeme)?|.*<[a-z-]+>.*)$' .env | cut -d= -f1 | grep -vx 'LLM_API_KEY' || true)"
-grep -qE '^HOMELAB_DOMAIN=.*your-tailnet' .env && left="HOMELAB_DOMAIN"$'\n'"$left"
+if grep -qE '^HOMELAB_DOMAIN=.*your-tailnet' .env; then left="HOMELAB_DOMAIN"$'\n'"$left"; fi
 if [[ -n "${left//$'\n'/}" ]]; then
   yellow "  ! still to set by hand in .env:"
-  printf '%s\n' "$left" | sed '/^$/d; s/^/      /'
+  printf '%s\n' "$left" | awk 'NF && !seen[$0]++ { print "      " $0 }'
 else
   green "  ✓ nothing left to set by hand — next: make validate"
 fi
