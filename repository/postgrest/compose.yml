@@ -1,0 +1,24 @@
+services:
+  postgrest:
+    image: postgrest/postgrest:${POSTGREST_TAG:-v16.4}
+    container_name: postgrest
+    restart: unless-stopped
+    depends_on:
+      db-provision:
+        condition: service_completed_successfully
+    environment:
+      PGRST_DB_URI: host=postgres port=5432 dbname=${POSTGRES_DB:-homelab} user=postgrest password=${POSTGREST_PASSWORD:?POSTGREST_PASSWORD must be set in .env}
+      PGRST_DB_SCHEMAS: tasker
+      PGRST_DB_ANON_ROLE: tasker_web
+      PGRST_DB_PRE_REQUEST: tasker.check_request
+      PGRST_APP_SETTINGS_GATEWAY_SECRET: ${TASKER_GATEWAY_SECRET:?TASKER_GATEWAY_SECRET must be set in .env}
+      PGRST_OPENAPI_MODE: disabled
+      PGRST_ADMIN_SERVER_PORT: "3002"   # /live and /ready, for the Status page and make health
+      TZ: ${TZ:-UTC}
+    # No published port: only the gateway reaches it, at /api/tasker/
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 128m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

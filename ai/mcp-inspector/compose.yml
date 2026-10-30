@@ -1,0 +1,30 @@
+services:
+  mcp-inspector:
+    image: ghcr.io/modelcontextprotocol/inspector:${MCP_INSPECTOR_TAG:-2.13.0}
+    container_name: mcp-inspector
+    restart: unless-stopped
+    depends_on:
+      agent-toolbox:
+        condition: service_started
+    # --config: a read-only server list with agent-toolbox only (no editing from the web page)
+    command: ["--web", "--config", "/etc/mcp-inspector/servers.json"]
+    environment:
+      # Reached only through Caddy (https://<HOMELAB_DOMAIN>:6274, signed in), which rewrites the
+      # Host header to this service's name.
+      ALLOWED_ORIGINS: https://${HOMELAB_DOMAIN:?HOMELAB_DOMAIN must be set in .env}:6274
+      MCP_INSPECTOR_ALLOWED_HOSTS: mcp-inspector,mcp-inspector:6274
+      # Nothing written to disk: no keychain in a container, and no secrets to keep
+      MCP_INSPECTOR_SECRET_STORE: memory
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./servers.json:/etc/mcp-inspector/servers.json:ro
+    # It can start processes, so like agent-toolbox it is on the agents network only: it reaches
+    # no database, Kafka or LLM. No published port: Caddy serves it, signed in.
+    networks:
+      - agents
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

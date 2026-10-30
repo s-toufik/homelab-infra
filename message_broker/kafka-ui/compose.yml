@@ -1,0 +1,22 @@
+services:
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:${KAFKA_UI_TAG:-v1.2.0}
+    container_name: kafka-ui
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      # No login of its own: the gateway's sign-in protects it (AUTH_TYPE left at its default, disabled)
+      KAFKA_CLUSTERS_0_NAME: homelab
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: "false"
+      LOGGING_LEVEL_ROOT: warn
+      JAVA_OPTS: -Xms256m -Xmx512m
+    # No published port: Caddy serves it with HTTPS and sign-in (see gateway/caddy/Caddyfile)
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

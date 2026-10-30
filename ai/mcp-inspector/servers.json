@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agent-toolbox": {
+      "type": "http",
+      "url": "http://agent-toolbox:8001/mcp"
+    }
+  }
+}

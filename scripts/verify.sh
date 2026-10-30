@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Checks the running stack after `make up`: HTTPS, sign-in, the Keycloak password policy,
-# PostgREST's protection and PostgreSQL row-level security. Changes nothing (test rows are rolled back).
+# Checks the running stack after `make up`: HTTPS, sign-in, the Keycloak password policy, the
+# agents' network isolation, PostgREST's protection and PostgreSQL row-level security. Changes nothing (test rows are rolled back).
 source "$(dirname "$0")/_common.sh"
 load_env
 
@@ -21,6 +21,7 @@ redirect_to() { curl -s -o /dev/null -w '%{redirect_url}' --max-time 10 "$@" || 
 contains() { [[ "$1" == *"$2"* ]]; }
 equals() { [[ "$1" == "$2" ]]; }
 differs() { [[ "$1" != "$2" ]]; }
+not() { ! "$@"; }
 
 psql_homelab() {
   docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -X -q -tA -v ON_ERROR_STOP=1 "$@"
@@ -60,7 +61,7 @@ expect "repeated wrong passwords lock the account" contains "$realm" "brute_forc
 expect "nobody can register an account from the web" contains "$realm" "registration=False"
 
 echo "==> Tools behind the gateway"
-for port in 9090 8080 12345 3100 3200 9308; do
+for port in 9090 8080 12345 3100 3200 9308 6274; do
   expect "port $port sends signed-out visitors to the sign-in page" \
     contains "$(redirect_to "https://${domain}:${port}/")" "$site/oauth2/sign_in"
 done
@@ -80,10 +81,45 @@ expect "Keycloak has the Grafana client" equals "$grafana_client" "grafana"
 # `docker port` lists only real host bindings (an image's declared EXPOSE ports don't count).
 published=""
 for container in homelab-ui grafana prometheus kafka-ui alloy loki tempo kafka-exporter llm \
-  keycloak oauth2-proxy postgrest; do
+  keycloak oauth2-proxy postgrest mcp-inspector; do
   [[ -z "$(docker port "$container" 2>/dev/null || true)" ]] || published+=" $container"
 done
 expect "only Caddy publishes the web ports (published directly:${published:- none})" equals "$published" ""
+
+echo "==> Agent"
+# Host addresses a container's ports are published on, e.g. "100.64.0.1:8000"
+host_bindings() { docker port "$1" 2>/dev/null | sed 's/.* -> //' | sort -u | paste -sd ' ' -; }
+expect "agent-runtime listens on the Tailscale address only (${BIND_ADDR}:8000)" \
+  equals "$(host_bindings agent-runtime)" "${BIND_ADDR}:8000"
+expect "agent-toolbox listens on the Tailscale address only (${BIND_ADDR}:8001)" \
+  equals "$(host_bindings agent-toolbox)" "${BIND_ADDR}:8001"
+expect "agent-runtime answers on http://${domain}:8000" \
+  equals "$(http_status "http://${domain}:8000/actuator/health")" "200"
+expect "agent-toolbox answers on http://${domain}:8001 (its host name is allowed)" \
+  equals "$(http_status "http://${domain}:8001/actuator/health")" "200"
+# Python one-liner run inside a container: exit 0 if it can open a TCP connection to host:port
+can_reach() {
+  docker compose exec -T "$1" python -c \
+    "import socket, sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), 3)" "$2" "$3" >/dev/null 2>&1
+}
+expect "agent-runtime reaches agent-toolbox" can_reach agent-runtime agent-toolbox 8001
+expect "agent-toolbox reaches the OTel Collector" can_reach agent-toolbox otel-collector 4317
+expect "agent-toolbox can't reach PostgreSQL" not can_reach agent-toolbox postgres 5432
+expect "agent-toolbox can't reach MongoDB" not can_reach agent-toolbox mongodb 27017
+expect "agent-toolbox can't reach Kafka" not can_reach agent-toolbox kafka 9092
+# The LLM provider from LLM_BASE_URL (e.g. NVIDIA's API on the internet, or the local llm:8080)
+llm_scheme="${LLM_BASE_URL%%://*}"; llm_hostport="${LLM_BASE_URL#*://}"; llm_hostport="${llm_hostport%%/*}"
+llm_host="${llm_hostport%%:*}"; llm_port="${llm_hostport##*:}"
+[[ "$llm_port" == "$llm_hostport" ]] && { [[ "$llm_scheme" == "https" ]] && llm_port=443 || llm_port=80; }
+expect "agent-runtime reaches its LLM provider (${llm_host}:${llm_port})" can_reach agent-runtime "$llm_host" "$llm_port"
+# The MCP Inspector image has Node, not Python
+node_can_reach() {
+  docker compose exec -T "$1" node -e \
+    "require('net').connect(+process.argv[2], process.argv[1]).setTimeout(3000, () => process.exit(1))
+       .on('connect', () => process.exit(0)).on('error', () => process.exit(1))" "$2" "$3" >/dev/null 2>&1
+}
+expect "the MCP Inspector reaches agent-toolbox" node_can_reach mcp-inspector agent-toolbox 8001
+expect "the MCP Inspector can't reach PostgreSQL" not node_can_reach mcp-inspector postgres 5432
 
 echo "==> PostgREST (Tasker API)"
 no_secret="$(docker compose exec -T caddy wget -S -q -O /dev/null http://postgrest:3000/workflows 2>&1 || true)"

@@ -1,331 +1,211 @@
 # homelab-infra
 
-A ready-to-run platform for a single home server, started with one command. Each service lives in its own folder and plugs into the same network, observability and commands, so the stack grows one service at a time. Today it brings observability (Grafana, Prometheus, Loki, Tempo), Kafka, PostgreSQL, MongoDB, a local LLM server and the homelab agent.
+A complete platform for one home server, started with one command: HTTPS and one sign-in in front of every web tool, databases, Kafka, full observability (metrics, logs, traces), local LLMs and the homelab agent, all wired together and watched.
 
-**[Using the stack](#using-the-stack)** — start it, open the tools, connect your apps.
-**[Working on the stack](#working-on-the-stack)** — how it is built and how to change it.
-
-```text
-                ┌─ SQL ─────────► PostgreSQL
-                ├─ documents ───► MongoDB
-  Your apps ────┼─ events ──────► Kafka
-                ├─ OpenAI API ──► LLM server ◄── Agent ◄── homelab-ui
-                └─ OTLP ────────► OTel Collector ──► Grafana
-
-  Your browser ── HTTPS + one sign-in (Caddy, Keycloak) ──► homelab-ui, Grafana, Prometheus, Kafka UI, …
-```
-
----
-
-## Using the stack
-
-### What's inside
-
-The services today — every service added later appears here, in the [Ports](#ports) table and on the homelab page:
-
-| Service | What you use it for |
-|---|---|
-| **homelab-ui** | The web front door: every service with its status (databases and Kafka included), the agent chat and Tasker |
-| **Gateway** (Caddy + Keycloak + oauth2-proxy) | HTTPS and one sign-in for every web tool: accounts in PostgreSQL with Argon2id password hashes, 90-day password expiry, managed from the terminal |
-| **Grafana** | Dashboards, log search, trace explorer — the place to look when something is wrong |
-| **Prometheus** | Metrics and their raw queries |
-| **Loki** / **Tempo** | Logs / traces storage, browsed through Grafana |
-| **OTel Collector** | Where your apps send their traces, metrics and logs |
-| **Alloy** / **cAdvisor** | Collect host metrics, container metrics and container logs automatically |
-| **Kafka** + **Kafka UI** | Event streaming, and a web UI to browse topics and messages |
-| **PostgreSQL** / **MongoDB** | Databases for your projects |
-| **PostgREST** | A REST API over PostgreSQL's `tasker` schema, where Tasker keeps each account's workflows and favorite blocks (reached only through the gateway) |
-| **LLM (llama-swap)** | Local models behind an OpenAI-compatible API, plus a playground |
-| **agent-runtime** / **agent-toolbox** | The homelab agent and the tools it can use (files, Python) |
-
-### Start it
-
-Requirements: a Linux machine with Docker Engine and Docker Compose ≥ 2.20, and [Tailscale](https://tailscale.com) on it with **MagicDNS** and **HTTPS certificates** turned on in the Tailscale admin console (the gateway's certificate comes from Tailscale). To prepare an Ubuntu laptop as an always-on server, see [the server guide](Readme_homelab.md).
-
-**The first time**
-
-```bash
-make env                        # creates .env from .env.example (readable by you only, never overwritten)
-make secrets                    # every "changeme" password and secret → random value; lists what is left
-nano .env                       # what make secrets listed: HOMELAB_DOMAIN, LLM_BASE_URL, TOOLBOX_EXTRA_ALLOWED_HOSTS
-make validate                   # checks settings and every config file
-make up                         # pulls, builds and starts everything
-make user-add ACCOUNT=<name>    # your sign-in account (asks email, name and password)
-make user-admin ACCOUNT=<name>  # optional: Grafana Admin and the 'admin' role
-make verify                     # HTTPS, sign-in everywhere, password policy, per-account data: every line ✓
-make health                     # every service, checked from inside Docker: every line ✓
-```
-
-The first start pulls all images and downloads the default model (`qwen3-8b`), which takes a while; Keycloak needs about a minute before the sign-in works.
-
-**After that** — `make up` (also after `git pull` or a config change), then `make verify` and `make health`. `make down` stops everything, data kept.
-
-### Open the tools
-
-Every web tool is on `https://<HOMELAB_DOMAIN>:<port>` behind **one sign-in**: the first one you open asks for your account, the others don't (the session lasts 8 hours). Devices need Tailscale to reach `<HOMELAB_DOMAIN>`.
-
-| Tool | URL | Sign-in |
-|---|---|---|
-| homelab-ui | `https://<HOMELAB_DOMAIN>/` (the old `http://<server>:8002` redirects there) | your account |
-| Grafana | `https://<HOMELAB_DOMAIN>:3000` | your account (Keycloak role `admin` → Grafana Admin, others Viewer). Emergency local admin: `/login?disableAutoLogin` with `GRAFANA_ADMIN_*` |
-| Prometheus | `https://<HOMELAB_DOMAIN>:9090` | your account |
-| Kafka UI | `https://<HOMELAB_DOMAIN>:8080` | your account |
-| Alloy pipelines | `https://<HOMELAB_DOMAIN>:12345` | your account |
-| LLM playground | `https://<HOMELAB_DOMAIN>:8090/ui` | your account |
-| Password change, sign-out of everything | `https://<HOMELAB_DOMAIN>:8443/realms/homelab/account` | your account |
-
-Grafana opens on the **Homelab Overview** dashboard; **Server Health** and **LLM (llama.cpp)** are next to it. Logs, traces and metrics are linked: from a log line you can jump to its trace, and back.
-
-### Connect your apps
-
-Use the first column from a container on the stack's network, the second from anywhere else. A service you add is reached the same way: its compose service name inside Docker, `<server>:<its-port>` from outside.
-
-| Service | Inside Docker | From your machine |
-|---|---|---|
-| PostgreSQL | `postgres:<postgres-port>` | `<server>:<postgres-port>` |
-| MongoDB | `mongodb://<user>:<password>@mongodb:<mongodb-port>/?authSource=admin` | `mongodb://<user>:<password>@<server>:<mongodb-port>/?authSource=admin` |
-| Kafka bootstrap | `kafka:<kafka-internal-port>` | `<server>:<kafka-port>` (set `KAFKA_EXTERNAL_HOST` in `.env` to that address) |
-| LLM (OpenAI-compatible) | `http://llm:<llm-internal-port>/v1` | `https://<HOMELAB_DOMAIN>:<llm-port>/v1` with `Authorization: Bearer <LLM_GATEWAY_API_KEY>` |
-| OTLP (gRPC / HTTP) | `otel-collector:<otlp-grpc-port>` / `http://otel-collector:<otlp-http-port>` | `<server>:<otlp-grpc-port>` / `http://<server>:<otlp-http-port>` |
-| Agent API | `http://agent-runtime:<agent-port>` | `http://<server>:<agent-port>` |
-| Agent tools (MCP) | `http://agent-toolbox:<toolbox-port>/mcp` | `http://<server>:<toolbox-port>/mcp` |
-
-Kafka and the LLM listen on a different port inside Docker than the one published on the server: both are in the [Ports](#ports) table. PostgREST is not published: Tasker reaches it through the gateway, signed in. Loki and Tempo's query APIs are behind the sign-in too; Grafana reads them inside Docker.
-
-Credentials are the ones you set in `.env`: `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`, `MONGO_ROOT_USER` / `MONGO_ROOT_PASSWORD`.
-
-The LLM picks the model from the request's `model` field — the list and their sizes are in [`llm/README.md`](llm/README.md):
-
-```bash
-curl https://<HOMELAB_DOMAIN>:<llm-port>/v1/chat/completions \
-  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"model": "qwen3-8b", "messages": [{"role": "user", "content": "Hello"}]}'
-```
-
-### See your app in Grafana
-
-Add this to your service and its traces, metrics and logs show up in Grafana:
-
-```yaml
-environment:
-  OTEL_SERVICE_NAME: my-service
-  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:<otlp-http-port>
-  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-labels:
-  homelab.logs.otlp: "true"   # only if it ships its logs via OTLP (avoids duplicates)
-```
-
-Container logs are collected automatically even without it.
-
-### Day-to-day commands
-
-Run `make` to list every command. The ones you'll use most:
-
-| To… | Run |
-|---|---|
-| See what is running / is healthy | `make ps` · `make health` · `make stats` · `make verify` (gateway, sign-in and data protection) · `make targets` |
-| Manage sign-in accounts | `make users` · `make user-add ACCOUNT=x` · `make user-password ACCOUNT=x` · `make user-admin ACCOUNT=x` · `make user-disable ACCOUNT=x` · `make user-unlock ACCOUNT=x` · `make sessions-revoke` — see [`keycloak/README.md`](keycloak/README.md) |
-| Rotate a gateway secret | `./scripts/secrets.sh --rotate <NAME>` then `make up` |
-| Follow logs | `make logs S=kafka` (`TAIL=500` for more history) |
-| Restart, or apply a config change | `make up` reloads Prometheus and Alloy configs by itself · `make reload-prometheus` · `make recreate S=otel-collector` for the others |
-| Start one group only | `make up-obs` · `make up-kafka` · `make up-db` · `make up-gateway` · `make up-apps` · `make up-llm` |
-| Open a shell / a database client | `make sh S=kafka` · `make psql` · `make mongosh` |
-| Work with Kafka topics | `make topics` · `make topic-create TOPIC=demo` · `make consume TOPIC=demo` · `make groups` |
-| Ask a model | `make llm-status` · `make llm-running` · `make llm-ask M=qwen3-8b Q="..."` (through the gateway, with the API key) |
-| Back up / restore the databases | `make backup` (PostgreSQL, the `keycloak` accounts and MongoDB) · `make restore-postgres FILE=backups/x.dump [DB=keycloak]` · `make restore-mongo FILE=backups/x.archive` |
-| Update images | `make update` |
-| Stop (data kept) | `make down` |
-| Delete everything, data included | `make clean` (asks for confirmation) |
-
-### Keep it private
-
-Every web tool is behind HTTPS and one sign-in. Still reached directly, without the gateway: PostgreSQL and MongoDB (their own passwords), Kafka and the OTLP ports (no authentication), and agent-runtime (8000) and agent-toolbox (8001), kept as they are until the agents get their own isolated networks. Keep the stack on your LAN or a private network such as Tailscale (`BIND_ADDR` in `.env`), and never expose it to the internet as it is.
-
----
-
-## Working on the stack
-
-### Architecture
+**Running it?** Every operation, step by step, with the raw command behind each `make` command: **[devops_guide.md](devops_guide.md)**.
 
 ```text
-GATEWAY (every browser request)
+                         ┌──────────────────────────── homelab ─────────────────────────────┐
+                         │                                                                  │
+  Browser ── HTTPS ──────┼─► GATEWAY ──► homelab-ui · Grafana · Prometheus · Kafka UI · …   │
+  (Tailscale)            │   one sign-in   ──► MCP Inspector ────────────┐                  │
+                         │                                               ▼                  │
+  Tailnet devices ───────┼─► AGENT    agent-runtime :8000 ─► agent-toolbox :8001            │
+                         │           (LLM: NVIDIA's API or local)     (MCP tools)           │
+                         │                                                                  │
+  Your apps ─────────────┼─► REPOSITORY        PostgreSQL · MongoDB · PostgREST             │
+                         ├─► MESSAGE BROKER    Kafka                                        │
+                         ├─► AI                LLM server (OpenAI-compatible API)           │
+                         └─► OBSERVABILITY     OTel Collector ──► Prometheus · Loki · Tempo │
+                         │                                     └──► Grafana                 │
+                         └──────────────────────────────────────────────────────────────────┘
+```
 
-  Browser ── HTTPS ──► caddy ── "signed in?" ──► oauth2-proxy ◄── sign-in ──► keycloak ──► PostgreSQL (db keycloak)
-                         │                                                       ▲
-                         │                                    keycloak-sync ─────┘ realm, password policy, clients
-                         │
-                         ├─ :443  /                ──► homelab-ui
-                         │        /api/agent/      ──► agent-runtime
-                         │        /api/prometheus/ ──► prometheus
-                         │        /api/tasker/     ──► postgrest ── SQL, row-level security ──► PostgreSQL (schema tasker)
-                         │        /api/health/…    ──► each tool's health endpoint
-                         ├─ :8443                  ──► keycloak (sign-in pages; /admin blocked)
-                         ├─ :3000                  ──► grafana (signs in with Keycloak itself)
-                         └─ :9090 :8080 :12345 :8090 :3100 :3200 :9308
-                                                   ──► prometheus, kafka-ui, alloy, llm, loki, tempo, kafka-exporter
+## What's inside
 
-APPLICATIONS
+Each group is a folder; each service has its own folder and `compose.yml`, all included by the root [`compose.yml`](compose.yml).
 
-  agent-runtime ── MCP ──► agent-toolbox
-        └── conversations ──► MongoDB
+| Group | Service | What it gives you |
+|---|---|---|
+| **[gateway/](gateway)** | [Caddy](gateway/caddy/README.md) | HTTPS with a Tailscale certificate, one entry point for every web tool and API |
+| | [Keycloak](gateway/keycloak/README.md) | Accounts and the sign-in page: Argon2id password hashes, 90-day passwords, lockout; managed from the terminal only |
+| | oauth2-proxy | Answers Caddy's "is this browser signed in?" for every request |
+| **[repository/](repository)** | [PostgreSQL](repository/postgres/README.md) | Relational database for your projects, Tasker's data and the accounts; [versioned migrations](repository/postgres/MIGRATIONS.md) |
+| | [PostgREST](repository/postgrest/README.md) | REST API over the `tasker` schema, each account seeing only its own rows |
+| | [MongoDB](repository/mongodb/README.md) | Document database; the agent's conversations |
+| **[message_broker/](message_broker)** | [Kafka](message_broker/kafka/README.md) | Event streaming (KRaft, single broker) |
+| | [Kafka UI](message_broker/kafka-ui/README.md) | Browse topics, messages and consumer groups |
+| **[observability/](observability)** | metrics: Prometheus, [cAdvisor](observability/metrics/cadvisor/README.md), [kafka-exporter](observability/metrics/kafka-exporter/README.md), [postgres-exporter](observability/metrics/postgres-exporter/README.md), [mongodb-exporter](observability/metrics/mongodb-exporter/README.md) | Host, container, Kafka, database and LLM metrics |
+| | logs: Loki · traces: Tempo | Log and trace storage |
+| | collectors: OTel Collector, Alloy | Receive your apps' OTLP; collect host metrics and every container's logs |
+| | dashboards: Grafana | Dashboards, log search and traces, all linked |
+| **[ai/](ai)** | [LLM (llama-swap)](ai/llm/README.md) | Local models behind an OpenAI-compatible API, plus a playground |
+| | agent-runtime · agent-toolbox | The homelab agent and its tools (files, Python sandbox), reachable from the tailnet only; the toolbox is kept away from the databases |
+| | [MCP Inspector](ai/mcp-inspector/README.md) | Lists and tries the toolbox's tools in the browser, behind the sign-in |
+| **[apps/](apps)** | homelab-ui | The front door: a **Status** page for every container, links to every tool, the agent chat and Tasker |
+
+## How it connects
+
+```text
+SIGN-IN — every browser request
+
+  Browser ─ HTTPS ─► caddy ─ "signed in?" ─► oauth2-proxy ◄─ OIDC ─► keycloak ─► PostgreSQL (db keycloak)
+                       │                                                ▲
+                       │                             keycloak-sync ─────┘  realm, password policy, clients (as code)
+                       │
+                       ├─ :443   /                 ─► homelab-ui
+                       │         /api/tasker/      ─► postgrest ─ row-level security ─► PostgreSQL (schema tasker)
+                       │         /api/agent/       ─► agent-runtime
+                       │         /api/prometheus/  ─► prometheus  (queries only)
+                       │         /api/health/<svc> ─► each container's health endpoint  (Status page)
+                       ├─ :8443  ─► keycloak  (sign-in and account pages; /admin blocked)
+                       ├─ :3000  ─► grafana   (signs in with Keycloak itself, roles mapped)
+                       ├─ :6274  ─► mcp-inspector ─► agent-toolbox
+                       └─ :9090 :8080 :12345 :8090 :3100 :3200 :9308
+                                 ─► prometheus · kafka-ui · alloy · llm · loki · tempo · kafka-exporter
+
+DATA
+
+  homelab-ui (Tasker) ─► /api/tasker ─► postgrest ─► PostgreSQL     workflows and favorites, per account
+  homelab-ui (Agent)  ─► /api/agent  ─► agent-runtime ─┬─ MCP ─► agent-toolbox ─► working-directory volume
+                                                       ├─ OpenAI API ─► LLM_BASE_URL (NVIDIA's API, or llm)
+                                                       └─ conversations ─► MongoDB
+  db-migrate (dbmate) ─► PostgreSQL schema, at every start · db-provision ─► role passwords
+
+AGENT — tailnet devices, homelab-ui and the MCP Inspector
+
+  tailnet device ─► <tailscale-ip>:8000 ─► agent-runtime        (BIND_ADDR = the Tailscale address)
+  tailnet device ─► <tailscale-ip>:8001 ─► agent-toolbox /mcp
+  ┌─ network `agents` ──────────────────────────────────────────────────────┐
+  │  agent-toolbox   mcp-inspector         (on this network only)           │
+  │  agent-runtime   otel-collector  caddy (also on `default`)              │
+  └─────────────────────────────────────────────────────────────────────────┘
+  agent-toolbox runs the code the agent writes: it reaches agent-runtime, its telemetry, the gateway
+  and the internet, never a database, Kafka or the LLM.
 
 TELEMETRY
 
-  agent-runtime ──────┐
-                      ├─ OTLP ─► otel-collector ─┬─ traces ──► Tempo ── span metrics ──► Prometheus
-  agent-toolbox ──────┘                          ├─ metrics ─► Prometheus
-                                                 └─ logs ────► Loki
-
-  Alloy ─┬─ host metrics ──► Prometheus
-         └─ docker logs ───► Loki
-
-SCRAPED BY PROMETHEUS
-
-  Prometheus ─┬─► cAdvisor ─────────────────────── container metrics
-              ├─► kafka-exporter ────► Kafka ◄── kafka-ui
-              ├─► postgres-exporter ─► PostgreSQL
-              ├─► mongodb-exporter ──► MongoDB
-              └─► llm (llama-swap) ─── per-model metrics
-
-GRAFANA
-
-  Grafana ──► Prometheus · Loki · Tempo   (logs ↔ traces ↔ metrics, linked)
+  your apps, agent-runtime, agent-toolbox ─ OTLP ─► otel-collector ─┬─ traces ─► Tempo ─ span metrics ─► Prometheus
+                                                                    ├─ metrics ► Prometheus
+                                                                    └─ logs ───► Loki
+  Alloy ─┬─ host metrics ─► Prometheus          Prometheus scrapes ─► cAdvisor · kafka-exporter · postgres-exporter
+         └─ docker logs ──► Loki                                     · mongodb-exporter · llm (per model)
+  Grafana ─► Prometheus · Loki · Tempo   (log line ↔ trace ↔ metrics, linked by trace_id and exemplars)
 ```
 
-Every web port is served by the gateway ([`caddy/README.md`](caddy/README.md)) with HTTPS and one sign-in; the services behind it publish no port of their own, and container-to-container traffic (Grafana → Prometheus, Alloy → Loki, …) stays on the Docker network as before. Published directly: PostgreSQL, MongoDB, Kafka, OTLP, and for now agent-runtime and agent-toolbox. The diagram and tables below describe the stack today; [Adding a service](#adding-a-service) lists what to update when it grows.
+**Signing in** — open any tool, Keycloak asks for your account once, and the session (cookie `__Host-homelab`, 8 hours) opens every other tool. Caddy removes any identity headers a browser sends and sets them itself from oauth2-proxy's answer.
 
-| Signal | Path |
-|--------|------|
-| App traces / metrics / logs | app → `otel-collector` (OTLP) → Tempo / Prometheus / Loki |
-| Host metrics (CPU, RAM, disk, net) | Alloy `prometheus.exporter.unix` → Prometheus remote-write |
-| Container metrics | standalone `cadvisor` → Prometheus scrape (see [`cadvisor/README.md`](cadvisor/README.md) for why it isn't Alloy's embedded exporter) |
-| Container stdout logs | Alloy `loki.source.docker` → Loki (apps labelled `homelab.logs.otlp=true` are skipped) |
-| Kafka lag / throughput | `kafka-exporter` ← Prometheus scrape |
-| Database health | `postgres-exporter` (`pg_up`) and `mongodb-exporter` (`mongodb_up`) ← Prometheus scrape; homelab-ui reads them, with `kafka_brokers`, for its Infrastructure status |
-| Service graph, RED metrics | Tempo metrics-generator → Prometheus |
-| LLM metrics | Prometheus scrapes `llm:8080/upstream/<model>/metrics` per model |
+**Your data stays yours** — Tasker calls `/api/tasker/`; Caddy adds a secret only it knows and the signed-in account name; PostgREST refuses requests without the secret, and PostgreSQL's row-level security returns only that account's workflows and favorites.
 
-Grafana is provisioned (`grafana/provisioning/`) with the three datasources cross-linked (logs ↔ traces ↔ metrics via `trace_id` and exemplars) and the dashboards in `grafana/dashboards/`.
+**Status at a glance** — homelab-ui's Status page asks `/api/health/<service>` for each web service and Prometheus (`pg_up`, `mongodb_up`, `kafka_brokers`) for the rest; `make health` checks the same endpoints from the terminal.
 
-### Repository layout
+## Access
 
-| Path | What it holds |
+Every web tool is on `https://<HOMELAB_DOMAIN>:<port>` behind one sign-in (`HOMELAB_DOMAIN` is the server's Tailscale name, `<machine>.<tailnet>.ts.net`). Devices need Tailscale.
+
+| Open | URL |
 |---|---|
-| `compose.yml` | The root stack: `include:`s every service's own compose file |
-| `.env.example` | Every setting, with comments |
-| `Makefile` | All commands (`make help`); service groups are defined at the top |
-| `scripts/` | `up.sh`, `down.sh`, `logs.sh`, `validate.sh`, `verify.sh`, `secrets.sh`, `users.sh`, `download_models.sh`; shared helpers in `_common.sh` |
-| `caddy/`, `keycloak/`, `oauth2-proxy/` | The gateway: HTTPS and routes (`Caddyfile`), accounts and the `homelab` realm applied by `sync.sh` on every start, the sign-in check — see [`caddy/README.md`](caddy/README.md) and [`keycloak/README.md`](keycloak/README.md) |
-| `database/` | Versioned SQL migrations (dbmate) and the provisioning script — see [`database/README.md`](database/README.md) |
-| `prometheus/`, `loki/`, `tempo/`, `otel-collector/`, `alloy/`, `cadvisor/` | Observability services and their config files |
-| `grafana/` | Datasource and dashboard provisioning, dashboard JSON |
-| `kafka/`, `kafka-ui/`, `kafka-exporter/` | Streaming |
-| `postgres/`, `mongodb/` | Databases |
-| `postgres-exporter/`, `mongodb-exporter/` | Database metrics for Prometheus (inside Docker only) |
-| `postgrest/` | REST API over PostgreSQL's `tasker` schema, behind the gateway — see [`postgrest/README.md`](postgrest/README.md) |
-| `llm/` | llama-swap config (`config.yml`), metrics exporter — see [`llm/README.md`](llm/README.md) |
-| `agent-toolbox/`, `agent-runtime/`, `homelab-ui/` | The applications, run from their published images |
-| `myapi-a/` | Documentation only: a template for packaging a Python API. Not included, never runs |
-| `Readme_homelab.md` | Preparing an Ubuntu laptop as an always-on server |
+| homelab-ui (Status, Agent, Tasker) | `https://<HOMELAB_DOMAIN>/` · `/status` |
+| Your account (password, sessions) | `https://<HOMELAB_DOMAIN>:8443/realms/homelab/account` |
+| Grafana | `https://<HOMELAB_DOMAIN>:3000` · `/dashboards` · `/explore` |
+| Prometheus | `https://<HOMELAB_DOMAIN>:9090` · `/query` · `/targets` |
+| Kafka UI | `https://<HOMELAB_DOMAIN>:8080` |
+| Alloy pipelines | `https://<HOMELAB_DOMAIN>:12345` · `/graph` |
+| LLM playground and API | `https://<HOMELAB_DOMAIN>:8090/ui` · `/v1` (also with `Authorization: Bearer <LLM_GATEWAY_API_KEY>`) |
+| Loki / Tempo APIs | `https://<HOMELAB_DOMAIN>:3100/ready` · `:3200/ready` |
+| kafka-exporter | `https://<HOMELAB_DOMAIN>:9308/metrics` |
+| MCP Inspector (agent-toolbox's tools) | `https://<HOMELAB_DOMAIN>:6274` |
+| Agent API docs (tailnet, no sign-in) | `http://<HOMELAB_DOMAIN>:8000/docs` |
 
-### Configuration
+**Connect your apps**
 
-Every setting is in `.env`; `scripts/validate.sh` refuses to start while a `changeme` is left. `make secrets` generates every password and secret still empty or `changeme` (hex values, safe in URLs and connection strings), never touches a value you set, and lists the settings only you can fill.
+| Service | Inside Docker | From another machine |
+|---|---|---|
+| PostgreSQL | `postgres:5432` | `<HOMELAB_DOMAIN>:5432` |
+| MongoDB | `mongodb://<user>:<password>@mongodb:27017/?authSource=admin` | same with `<HOMELAB_DOMAIN>:27017` |
+| Kafka | `kafka:9092` | `<HOMELAB_DOMAIN>:9094` |
+| LLM (OpenAI-compatible) | `http://llm:8080/v1` | `https://<HOMELAB_DOMAIN>:8090/v1` + API key |
+| OTLP gRPC / HTTP | `otel-collector:4317` / `http://otel-collector:4318` | `<HOMELAB_DOMAIN>:4317` / `:4318` |
+| Agent API | `http://agent-runtime:8000` | `http://<HOMELAB_DOMAIN>:8000` |
+| Agent tools (MCP, streamable HTTP) | `http://agent-toolbox:8001/mcp` | `http://<HOMELAB_DOMAIN>:8001/mcp` |
 
-| Group | Keys |
-|---|---|
-| Host | `BIND_ADDR` (`0.0.0.0` = LAN, `127.0.0.1` = this machine only, or a Tailscale IP), `HOST_NAME`, `TZ` |
-| Gateway | `HOMELAB_DOMAIN` (this machine's Tailscale name); generated: `OAUTH2_PROXY_CLIENT_SECRET`, `OAUTH2_PROXY_COOKIE_SECRET` (`make sessions-revoke` rotates it), `TASKER_GATEWAY_SECRET`, `GRAFANA_OIDC_CLIENT_SECRET`, `LLM_GATEWAY_API_KEY` — rotate any of them with `./scripts/secrets.sh --rotate <NAME>` then `make up` |
-| Image tags | `*_TAG`, one per service — pinned on purpose |
-| Credentials | users are yours to set (`GRAFANA_ADMIN_USER` — emergency local Grafana admin —, `POSTGRES_USER`, `POSTGRES_DB`, `MONGO_ROOT_USER`, `KEYCLOAK_ADMIN_USER`); generated: `GRAFANA_ADMIN_PASSWORD`, `POSTGRES_PASSWORD`, `MONGO_ROOT_PASSWORD`, `POSTGREST_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_DB_PASSWORD`. The PostgreSQL and MongoDB passwords only apply when their volume is first created |
-| Retention | `PROMETHEUS_RETENTION_TIME`, `PROMETHEUS_RETENTION_SIZE` |
-| Kafka | `KAFKA_CLUSTER_ID`, `KAFKA_EXTERNAL_HOST` |
-| Apps | `TOOLBOX_EXTRA_ALLOWED_HOSTS`, `LLM_BASE_URL`, `LLM_API_KEY`, `LOG_LEVEL`; for agent-runtime also `WEB_DOCS`, `GUARDRAIL_ENABLED`, `MAX_CONCURRENT_STREAMS`, `AGENT_ANSWER_DELIVERY` |
+Add `OTEL_SERVICE_NAME` and `OTEL_EXPORTER_OTLP_ENDPOINT` to your service and its traces, metrics and logs appear in Grafana; container logs are collected even without them.
 
-### Ports
+## Security
 
-| Service | Published port | Inside Docker | Notes |
-|---------|------|------|-------|
-"Gateway port" is served by Caddy on `https://<HOMELAB_DOMAIN>:<port>` behind the sign-in; the service itself publishes nothing.
+- **HTTPS everywhere** for the web tools, with a real certificate from Tailscale.
+- **One sign-in**: accounts in Keycloak (PostgreSQL), passwords stored as Argon2id hashes with a per-password salt, at least 12 characters, not one of the last 5, expiring after 90 days; 5 wrong attempts lock the account.
+- **Terminal-only administration**: accounts are created and changed with `make user-*` on the server; Keycloak's admin console is blocked at the gateway; passwords travel on stdin, never on a command line.
+- **Secrets** are generated into `.env` (git-ignored, mode 600) by `make secrets`; none is in git.
+- **Per-account data** enforced by PostgreSQL row-level security, not only by the UI.
+- **Tailnet only**: every published port listens on the server's Tailscale address (`BIND_ADDR`, checked by `make validate`), so nothing is reachable from the LAN or the internet.
+- **Agent kept apart**: agent-toolbox and the MCP Inspector, which run code, sit on their own network with no database, Kafka or LLM; agent-runtime keeps the internet for its LLM provider.
+- `make verify` checks all of the above on the running stack.
 
-| Service | Gateway port | Published directly | Inside Docker | Notes |
-|---------|------|------|------|-------|
-| homelab-ui | 443 | — | 8080 | the old `http://<server>:8002` redirects to 443 |
-| Keycloak | 8443 | — | 8080 / 9000 | sign-in pages (`/admin` blocked) / health |
-| oauth2-proxy | `/oauth2/` on 443 | — | 4180 | the sign-in check Caddy asks |
-| Grafana | 3000 | — | 3000 | signs in with Keycloak itself |
-| Prometheus | 9090 | — | 9090 | `/-/quit` and `/-/reload` blocked at the gateway |
-| Kafka UI | 8080 | — | 8080 | |
-| Alloy | 12345 | — | 12345 | |
-| LLM (llama-swap) | 8090 | — | 8080 | `/ui` signed in; `/v1` also with `Authorization: Bearer <LLM_GATEWAY_API_KEY>` |
-| Loki | 3100 | — | 3100 | API only |
-| Tempo | 3200 | — | 3200 | Query API only |
-| kafka-exporter | 9308 | — | 9308 | `/metrics` |
-| PostgREST | `/api/tasker/` on 443 | — | 3000 | |
-| agent-runtime | `/api/agent/` on 443 | 8000 | 8000 | direct port kept until the agents are isolated |
-| agent-toolbox | — | 8001 | 8001 | direct port kept until the agents are isolated |
-| OTel Collector | — | 4317 / 4318 / 13133 | same | OTLP gRPC / OTLP HTTP / health |
-| Kafka | — | 9094 | 9092 | External listener on the server; containers use `kafka:9092` |
-| PostgreSQL | — | 5432 | 5432 | |
-| MongoDB | — | 27017 | 27017 | |
-| postgres-exporter, mongodb-exporter | — | — | 9187, 9216 | `/metrics` |
+Outside the sign-in, because their clients are programs, not browsers, and reachable from the tailnet's devices only: PostgreSQL and MongoDB (their own passwords), Kafka and OTLP (no authentication), agent-runtime (8000) and agent-toolbox (8001). Never forward these ports on your router.
 
-`make health` checks every HTTP service from inside the Docker network; its list (`HEALTH_INTERNAL` in the `Makefile`) must follow any port change. A new web port also needs a site block in `caddy/Caddyfile` and the port in `caddy/compose.yml`.
+## Repository layout
 
-### Adding a service
+```text
+homelab-infra/
+├── compose.yml            includes every service below
+├── .env.example           every setting, commented (make env → .env)
+├── Makefile               every command (make help)
+├── devops_guide.md        how to operate it
+├── scripts/               up, down, validate, verify, secrets, users, db-passwords, download_models
+├── gateway/               caddy (Caddyfile) · keycloak (sync.sh: realm as code) · oauth2-proxy
+├── repository/            postgres (migrations/, provision.sh) · postgrest · mongodb
+├── message_broker/        kafka · kafka-ui
+├── observability/
+│   ├── metrics/           prometheus · cadvisor · kafka-exporter · postgres-exporter · mongodb-exporter
+│   ├── logs/              loki
+│   ├── traces/            tempo
+│   ├── collectors/        otel-collector · alloy
+│   └── dashboards/        grafana (provisioning, dashboard JSON)
+├── ai/                    llm (llama-swap config.yml) · agent-runtime · agent-toolbox · mcp-inspector
+├── apps/                  homelab-ui
+└── templates/             myapi-a: how to package a Python API (documentation, never runs)
+```
 
-1. Create `<service>/compose.yml` and list it under `include:` in the root `compose.yml`.
-2. Pin its image tag in `.env.example` (`<SERVICE>_TAG`) and give it memory and CPU limits.
-3. Send its telemetry to `otel-collector` (see [See your app in Grafana](#see-your-app-in-grafana)); if it exposes Prometheus metrics, add a scrape job in `prometheus/prometheus.yml` — `make up` reloads Prometheus, so the job is live after the next deploy.
-4. If it has an HTTP endpoint, add it to `HEALTH_INTERNAL` in the `Makefile` and to a service group if it belongs to one. If people open it in a browser, don't publish its port: add a site in `caddy/Caddyfile` (`import signed_in_tool <service>:<port>`) and the port to `caddy/compose.yml`.
-5. To show it on the homelab page, add a feature for it in homelab-ui (a link, a page, or a status in its Infrastructure section).
-6. Add it to this README: [What's inside](#whats-inside), the architecture diagram if it sends or receives telemetry, [Ports](#ports) and [Resource budget](#resource-budget).
+## Resources and retention
 
-### Resource budget
+Sized for one machine with 10 physical cores and 32 GiB RAM; the limits leave about 10 GiB to the OS page cache.
 
-Memory limits leave about 10 GiB to the OS page cache, which Kafka, PostgreSQL and Loki rely on. CPU limits are caps, not reservations. Sized for 10 physical cores and 32 GiB RAM.
-
-| Service | Memory limit | CPU cap |
-|---------|-------------:|--------:|
+| Service | Memory | CPU |
+|---|---:|---:|
 | LLM (`qwen3-8b` always on + one on-demand model) | 26 GiB | 16 |
 | PostgreSQL | 4 GiB | 2 |
 | Prometheus, Loki, Tempo, MongoDB | 3 GiB each | 2 |
-| Kafka | 2 GiB (1 GiB heap) | 2 |
-| Kafka UI, Grafana, Alloy | 768 MiB each | 1 |
+| Kafka | 2 GiB | 2 |
 | Keycloak | 1 GiB | 2 |
+| Kafka UI, Grafana, Alloy | 768 MiB each | 1 |
 | OTel Collector, agent-runtime, agent-toolbox | 512 MiB each | 1 |
 | cAdvisor | 384 MiB | 1 |
-| Caddy | 256 MiB | 1 |
+| Caddy, keycloak-sync, MCP Inspector | 256 MiB each | 1 / 0.5 / 0.5 |
 | homelab-ui, kafka-exporter, PostgREST, oauth2-proxy | 128 MiB each | 0.5 |
-| keycloak-sync (exits once done) | 256 MiB | 0.5 |
-| postgres-exporter, mongodb-exporter, db-migrate and db-provision (exit once done) | 64 MiB each | 0.25 |
+| exporters, db-migrate, db-provision, llm-sd-exporter | 64 MiB each | 0.25 |
 
-The LLM ceiling is deliberately generous: the on-demand group in [`llm/config.yml`](llm/config.yml) keeps only **one** of its models loaded at a time (`swap: true`). Real peak usage is `qwen3-8b` (~5 GiB) plus the active on-demand model (up to ~19 GiB) plus the rest of the stack. On OOM kills, lower that model's `--ctx-size` before touching another service's limit.
+| Data | Kept for |
+|---|---|
+| Metrics (Prometheus) | 30 days or 50 GB |
+| Logs (Loki) | 30 days |
+| Traces (Tempo) | 7 days |
+| Kafka messages | 7 days, 10 GiB per partition |
 
-### Retention
+## The server
 
-| Store | Retention | Where to change |
-|-------|-----------|-----------------|
-| Prometheus | 30 d or 50 GB | `.env` `PROMETHEUS_RETENTION_*` |
-| Loki | 30 d | `loki/config.yml` `retention_period` |
-| Tempo | 7 d | `tempo/config.yml` `block_retention` |
-| Kafka | 7 d, 10 GiB per partition | `kafka/compose.yml` |
+The stack runs on an Ubuntu laptop turned into an always-on server: it never sleeps (lid closed included), boots with only Tailscale running, prefers Ethernet with Wi-Fi as fallback, reboots itself on a freeze or a stuck Tailscale, caps its battery at 80%, reports a heartbeat to an external monitor, and measures the internet speed every 2 hours into Grafana's **Server Health** dashboard.
 
-Data lives in named Docker volumes (`make volumes`).
+## Quickstart
 
-### Agent working directory
+On a Linux server with Docker Compose ≥ 2.20 and Tailscale (MagicDNS and HTTPS certificates on):
 
-`agent-toolbox` keeps the files its tools read and write in the volume `homelab_agent-working-directory`, mounted at `/data/working_directory`. Its file tools and Python sandbox are confined to it; the agent reaches these files only through the toolbox's tools.
+```bash
+make env && make secrets        # .env with every secret generated
+nano .env                       # HOMELAB_DOMAIN, BIND_ADDR, LLM_BASE_URL
+make validate && make up
+make user-add ACCOUNT=<name> && make user-admin ACCOUNT=<name>
+make verify && make health
+```
 
-### Security notes
-
-Alloy mounts the Docker socket read-only (needed for log discovery); cAdvisor runs `privileged` with `cgroup: host` (needed for per-container cgroup stats); Caddy mounts the Tailscale socket (needed for its certificate).
-
-The gateway protects every web tool, homelab-ui's APIs and Tasker's data: HTTPS, one sign-in with Keycloak (Argon2id hashes, 90-day passwords, lockout after repeated failures), identity headers set only by Caddy, PostgREST refusing anything without the gateway secret, and row-level security per account. `make verify` checks all of it on the running stack.
-
-Still outside the gateway: Kafka and the OTLP ports have no authentication, and agent-runtime (8000) and agent-toolbox (8001) keep their direct ports. Every container also shares one Docker network, so agent-toolbox's Python sandbox can reach the other services on it from the inside. Keep the stack on a trusted network until the agents get their own isolated networks.
-
-### Upgrading
-
-Image tags are pinned in `.env`. Bump one at a time, run `make validate`, then `make up S=<service>`. Read the release notes of Tempo, Loki and the OTel Collector in particular: their config formats change between minor versions.
+Then open `https://<HOMELAB_DOMAIN>/status`. Everything else — accounts, passwords, migrations, backups, publishing homelab-ui, preparing the server, troubleshooting — is in **[devops_guide.md](devops_guide.md)**.

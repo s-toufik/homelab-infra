@@ -1,0 +1,47 @@
+services:
+  agent-toolbox:
+    image: toufik142/agent-toolbox:${AGENT_TOOLBOX_TAG:-latest}
+    container_name: agent-toolbox
+    restart: unless-stopped
+    labels:
+      homelab.logs.otlp: "true"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    environment:
+      APP_ENV: deploy
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      DEPLOYMENT_ENVIRONMENT: homelab
+      OTEL_HOST: otel-collector
+      OTEL_PORT: "4317"
+      TOOLBOX_URL: http://agent-toolbox:8001/mcp
+      # Host names the toolbox answers to, besides agent-toolbox:8001 (DNS-rebinding protection):
+      # the server's Tailscale name and address, plus any you add in .env (e.g. the short MagicDNS name)
+      TOOLBOX_EXTRA_ALLOWED_HOSTS: "${HOMELAB_DOMAIN}:8001,${BIND_ADDR}:8001,${TOOLBOX_EXTRA_ALLOWED_HOSTS:-}"
+      USER_DB_HOST: /data/sqlite
+      USER_DB_NAME: user
+      SANDBOX_TOOL_ACCESS: "true"
+      WORKING_DIRECTORY: /data/working_directory
+      TZ: ${TZ:-UTC}
+    volumes:
+      - agent-toolbox-data:/data/sqlite
+      - agent-working-directory:/data/working_directory
+    # Published on BIND_ADDR, the Tailscale address: MCP clients on the tailnet's devices use
+    # http://<HOMELAB_DOMAIN>:8001/mcp; in the browser, the MCP Inspector (signed in).
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8001:8001"
+    # It runs code the agent writes, so it is on the agents network only (see the root compose.yml):
+    # agent-runtime calls it there; it reaches no database, Kafka or LLM.
+    networks:
+      - agents
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512m }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  agent-toolbox-data:
+  agent-working-directory:
+    name: homelab_agent-working-directory

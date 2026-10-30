@@ -25,7 +25,7 @@ OBS   := prometheus loki tempo otel-collector alloy grafana
 KAFKA := kafka kafka-ui kafka-exporter
 DB    := postgres mongodb postgres-exporter mongodb-exporter postgrest
 GATEWAY := caddy keycloak oauth2-proxy
-APPS  := agent-toolbox agent-runtime homelab-ui
+APPS  := agent-toolbox agent-runtime mcp-inspector homelab-ui
 
 # Sign-in account for the user-* targets (not USER, which make inherits from your shell)
 ACCOUNT ?=
@@ -113,7 +113,7 @@ up-db: check-env ## Start PostgreSQL, MongoDB, their exporters and PostgREST
 	@$(COMPOSE) up -d $(DB)
 up-gateway: check-env ## Start the gateway: Caddy (HTTPS), Keycloak and oauth2-proxy (sign-in)
 	@$(COMPOSE) up -d $(GATEWAY)
-up-apps: check-env ## Start agent-toolbox and agent-runtime (pulls if missing)
+up-apps: check-env ## Start agent-toolbox, agent-runtime, the MCP Inspector and homelab-ui
 	@$(COMPOSE) up -d $(APPS)
 up-llm: check-env ## Start the LLM server (llama-swap)
 	@$(COMPOSE) up -d llm
@@ -149,8 +149,13 @@ HEALTH_INTERNAL := \
   'alloy|http://alloy:12345/-/ready' \
   'kafka-ui|http://kafka-ui:8080/actuator/health' \
   'kafka-exporter|http://kafka-exporter:9308/metrics' \
+  'postgres-exporter|http://postgres-exporter:9187/metrics' \
+  'mongodb-exporter|http://mongodb-exporter:9216/metrics' \
+  'cadvisor|http://cadvisor:8080/healthz' \
+  'postgrest|http://postgrest:3002/ready' \
   'agent-toolbox|http://agent-toolbox:8001/actuator/health' \
   'agent-runtime|http://agent-runtime:8000/actuator/health' \
+  'mcp-inspector|http://mcp-inspector:6274/' \
   'keycloak|http://keycloak:9000/health/ready' \
   'oauth2-proxy|http://oauth2-proxy:4180/ping' \
   'llm|http://llm:8080/health'
@@ -189,7 +194,7 @@ verify: check-env ## Check HTTPS, sign-in, password policy, Tasker API protectio
 
 ##@ Users (sign-in accounts, managed only from this terminal)
 
-.PHONY: users user-add user-password user-disable user-enable user-unlock user-admin sessions-revoke
+.PHONY: users user-add user-password user-disable user-enable user-unlock user-admin user-unadmin user-remove sessions-revoke
 users: check-env ## List sign-in accounts
 	@./scripts/users.sh list
 user-add: check-env ## Create an account: make user-add ACCOUNT=<name> (asks email, name, password)
@@ -204,10 +209,44 @@ user-unlock: check-env ## Clear a lock after too many wrong passwords: make user
 	@./scripts/users.sh unlock "$(ACCOUNT)"
 user-admin: check-env ## Give an account the 'admin' role: make user-admin ACCOUNT=<name>
 	@./scripts/users.sh admin "$(ACCOUNT)"
+user-unadmin: check-env ## Take the 'admin' role away: make user-unadmin ACCOUNT=<name>
+	@./scripts/users.sh unadmin "$(ACCOUNT)"
+user-remove: check-env ## Delete an account (asks to confirm, optionally its Tasker data): make user-remove ACCOUNT=<name>
+	@./scripts/users.sh remove "$(ACCOUNT)"
 sessions-revoke: check-env ## Sign every account out now (new cookie key + end Keycloak sessions)
 	@./scripts/secrets.sh --rotate OAUTH2_PROXY_COOKIE_SECRET
 	@$(COMPOSE) up -d --force-recreate oauth2-proxy
 	@./scripts/users.sh logout-all
+
+##@ Database (migrations and passwords)
+
+MIGRATIONS_DIR := repository/postgres/migrations
+NAME ?=
+
+.PHONY: migrate migrate-status migrate-rollback migration-new db-passwords-check postgres-password-sync mongo-password-sync
+migrate: check-env ## Apply the migrations not applied yet, then reload PostgREST's schema
+	@$(COMPOSE) run --rm db-migrate migrate
+	@$(COMPOSE) kill -s SIGUSR1 postgrest >/dev/null 2>&1 && echo "PostgREST schema reloaded" || true
+migrate-status: check-env ## List applied and pending migrations
+	@$(COMPOSE) run --rm db-migrate status
+migrate-rollback: check-env ## Undo the latest migration (runs its 'migrate:down', asks to confirm)
+	@read -r -p "Undo the latest migration? Its data changes are lost. Type 'rollback' to confirm: " a; \
+	  [ "$$a" = "rollback" ] || { echo "Aborted."; exit 1; }
+	@$(COMPOSE) run --rm db-migrate rollback
+	@$(COMPOSE) kill -s SIGUSR1 postgrest >/dev/null 2>&1 && echo "PostgREST schema reloaded" || true
+migration-new: ## Create the next numbered migration file: make migration-new NAME=add_workflow_tags
+	@[[ "$(NAME)" =~ ^[a-z0-9_]+$$ ]] || { echo "Usage: make migration-new NAME=<lowercase_with_underscores>"; exit 1; }
+	@last=$$(ls $(MIGRATIONS_DIR) | sed -n 's/^\([0-9][0-9][0-9]\)_.*/\1/p' | sort | tail -n 1); \
+	next=$$(printf '%03d' $$((10#$${last:-0} + 1))); \
+	file=$(MIGRATIONS_DIR)/$${next}_$(NAME).sql; \
+	printf -- '-- migrate:up\n\n\n-- migrate:down\n\n' > "$$file"; \
+	echo "→ $$file  (write the up and down SQL, then: make migrate)"
+db-passwords-check: check-env ## Check PostgreSQL and MongoDB accept the passwords in .env
+	@./scripts/db-passwords.sh check
+postgres-password-sync: check-env ## Make PostgreSQL use POSTGRES_PASSWORD from .env (old one not needed)
+	@./scripts/db-passwords.sh postgres-sync
+mongo-password-sync: check-env ## Make MongoDB use MONGO_ROOT_PASSWORD from .env (asks the current one)
+	@./scripts/db-passwords.sh mongo-sync
 
 ##@ Shells
 
@@ -266,12 +305,12 @@ reload-alloy: check-env ## Hot-reload config.alloy (make up does it too)
 
 ##@ LLM (llama-swap)
 
-# M = model name for llm-ask (see llm/config.yml for the names llama-swap serves)
+# M = model name for llm-ask (see ai/llm/config.yml for the names llama-swap serves)
 M ?= qwen3-8b
 Q ?= What is Apache Kafka? Answer in two sentences.
 LLM_PORT := 8090
-# llm/test.py goes through the gateway with the LLM API key from .env
-LLM_TEST := set -a; . ./$(ENV_FILE); set +a; python3 llm/test.py
+# ai/llm/test.py goes through the gateway with the LLM API key from .env
+LLM_TEST := set -a; . ./$(ENV_FILE); set +a; python3 ai/llm/test.py
 
 .PHONY: llm-down
 llm-down: check-env ## Stop the LLM server (frees the RAM of always-on models)
@@ -296,7 +335,7 @@ llm-logs: check-env ## Follow llama-swap logs
 	@$(COMPOSE) logs -f --tail=$(TAIL) llm
 
 .PHONY: llm-ask
-llm-ask: check-env ## Ask a question: make llm-ask [M=<model>] [Q="..."] — see llm/config.yml for model names
+llm-ask: check-env ## Ask a question: make llm-ask [M=<model>] [Q="..."] — see ai/llm/config.yml for model names
 	@$(LLM_TEST) ask "https://$(DOMAIN):$(LLM_PORT)" "$(M)" "$(Q)"
 
 ##@ Backup

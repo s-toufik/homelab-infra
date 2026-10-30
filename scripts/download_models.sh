@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Download one or more llama-swap models into the llm-models volume, on demand —
-# decoupled from container startup (see llm/config.yml hooks.on_startup.preload
-# and llm/README.md). Reads the exact `-hf <repo>:<quant>` spec straight out of
-# llm/config.yml and fetches it with the same llama-swap image/binary that
+# decoupled from container startup (see ai/llm/config.yml hooks.on_startup.preload
+# and ai/llm/README.md). Reads the exact `-hf <repo>:<quant>` spec straight out of
+# ai/llm/config.yml and fetches it with the same llama-swap image/binary that
 # serves it, so the download lands in the exact cache llama-swap expects.
 source "$(dirname "$0")/_common.sh"
 load_env
 
-CONFIG_FILE="$ROOT_DIR/llm/config.yml"
+CONFIG_FILE="$ROOT_DIR/ai/llm/config.yml"
 VOLUME="homelab_llm-models"
 IMAGE="ghcr.io/mostlygeek/llama-swap:${LLAMA_SWAP_TAG:-cpu}"
 TIMEOUT_SECONDS=3600
@@ -16,7 +16,7 @@ usage() {
   cat <<EOF
 Usage:
   $(basename "$0") <model> [model...]   # download one or more models by name
-  $(basename "$0") --all                # download every model in llm/config.yml
+  $(basename "$0") --all                # download every model in ai/llm/config.yml
   $(basename "$0") --list               # list available model names
 EOF
   exit 1

@@ -37,10 +37,21 @@ esac
 if [[ "${HOMELAB_DOMAIN:-}" =~ ^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$ && "${HOMELAB_DOMAIN}" != *your-tailnet* ]]; then
   ok "HOMELAB_DOMAIN=$HOMELAB_DOMAIN"
 else
-  fail "HOMELAB_DOMAIN must be this machine's Tailscale name, like sirius.<tailnet>.ts.net"
+  fail "HOMELAB_DOMAIN must be this machine's Tailscale name, like <machine>.<tailnet>.ts.net"
 fi
-[[ "${BIND_ADDR:-}" == "0.0.0.0" ]] && yellow "  ! BIND_ADDR=0.0.0.0: services are reachable from the whole LAN"
-[[ "${BIND_ADDR:-127.0.0.1}" == "127.0.0.1" ]] && yellow "  ! BIND_ADDR=127.0.0.1: the gateway is unreachable from other devices"
+# Every published port listens on BIND_ADDR only: it must be this machine's Tailscale address, so the
+# stack (agent-runtime and agent-toolbox included) is reachable from the tailnet's devices and nothing else.
+# Tailscale addresses are in 100.64.0.0/10, i.e. 100.64.x.x to 100.127.x.x.
+if [[ "${BIND_ADDR:-}" =~ ^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+  tailscale_ip="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
+  if [[ -n "$tailscale_ip" && "$tailscale_ip" != "$BIND_ADDR" ]]; then
+    fail "BIND_ADDR=$BIND_ADDR but this machine's Tailscale address is $tailscale_ip"
+  else
+    ok "BIND_ADDR=$BIND_ADDR (Tailscale): published ports are reachable from the tailnet only"
+  fi
+else
+  fail "BIND_ADDR must be this machine's Tailscale address (tailscale ip -4), not '${BIND_ADDR:-}'"
+fi
 
 echo "==> Tailscale"
 if [[ -S /var/run/tailscale/tailscaled.sock ]]; then
@@ -59,36 +70,36 @@ run_check() { # name, docker run args...
 
 echo "==> Tool configs"
 run_check "prometheus.yml (promtool)" \
-  -v "$ROOT_DIR/prometheus:/cfg:ro" --entrypoint promtool \
+  -v "$ROOT_DIR/observability/metrics/prometheus:/cfg:ro" --entrypoint promtool \
   "prom/prometheus:${PROMETHEUS_TAG}" check config /cfg/prometheus.yml
 
 run_check "loki config.yml" \
-  -v "$ROOT_DIR/loki/config.yml:/etc/loki/config.yml:ro" \
+  -v "$ROOT_DIR/observability/logs/loki/config.yml:/etc/loki/config.yml:ro" \
   "grafana/loki:${LOKI_TAG}" -config.file=/etc/loki/config.yml -verify-config
 
 run_check "otel-collector config.yml" \
-  -v "$ROOT_DIR/otel-collector/config.yml:/cfg.yml:ro" \
+  -v "$ROOT_DIR/observability/collectors/otel-collector/config.yml:/cfg.yml:ro" \
   "otel/opentelemetry-collector-contrib:${OTELCOL_TAG}" validate --config=/cfg.yml
 
 run_check "config.alloy (syntax)" \
-  -v "$ROOT_DIR/alloy/config.alloy:/cfg.alloy:ro" \
+  -v "$ROOT_DIR/observability/collectors/alloy/config.alloy:/cfg.alloy:ro" \
   "grafana/alloy:${ALLOY_TAG}" fmt /cfg.alloy
 
 run_check "Caddyfile (caddy validate)" \
-  -v "$ROOT_DIR/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  -v "$ROOT_DIR/gateway/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
   -e HOMELAB_DOMAIN -e TASKER_GATEWAY_SECRET -e LLM_GATEWAY_API_KEY \
   "caddy:${CADDY_TAG}" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
-if bash -n keycloak/sync.sh; then ok "keycloak/sync.sh (syntax)"; else fail "keycloak/sync.sh has a syntax error"; fi
+if bash -n gateway/keycloak/sync.sh; then ok "gateway/keycloak/sync.sh (syntax)"; else fail "gateway/keycloak/sync.sh has a syntax error"; fi
 
 echo "==> Database migrations"
-for f in database/migrations/*.sql; do
+for f in repository/postgres/migrations/*.sql; do
   if grep -q '^-- migrate:up' "$f" && grep -q '^-- migrate:down' "$f"; then ok "$f"
   else fail "$f needs both '-- migrate:up' and '-- migrate:down'"; fi
 done
 
-echo "==> Grafana dashboards (JSON)"
-for f in grafana/dashboards/*.json; do
+echo "==> JSON files (Grafana dashboards, MCP Inspector servers)"
+for f in observability/dashboards/grafana/dashboards/*.json ai/mcp-inspector/servers.json; do
   if python3 -m json.tool "$f" >/dev/null 2>&1; then ok "$f"; else fail "$f is not valid JSON"; fi
 done
 
