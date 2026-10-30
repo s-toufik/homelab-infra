@@ -12,6 +12,14 @@ for tool in kubectl helm helmfile tailscale jq openssl; do
   if command -v "$tool" >/dev/null; then ok "$tool"; else fail "$tool not found (DevOps guide, Install Kubernetes)"; fi
 done
 if helm plugin list 2>/dev/null | grep -q '^diff'; then ok "helm diff plugin"; else fail "helm diff plugin missing (DevOps guide, Install Kubernetes)"; fi
+# Helm reads Docker's login settings: a credential helper named there must exist, or every chart pull fails
+docker_config="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+store="$(jq -r '.credsStore // empty' "$docker_config" 2>/dev/null || true)"
+if [[ -n "$store" ]] && ! command -v "docker-credential-$store" >/dev/null; then
+  fail "$docker_config uses credential helper '$store', which isn't installed: Helm can't pull charts (DevOps guide, Troubleshooting)"
+else
+  ok "Helm can read the registry logins"
+fi
 
 echo "==> Cluster"
 require_cluster
@@ -31,7 +39,11 @@ if [[ -S /run/tailscale/tailscaled.sock ]]; then ok "Tailscale's socket is there
 else fail "/run/tailscale/tailscaled.sock not found: Tailscale must run on this machine"; fi
 
 echo "==> Secrets"
-if ./scripts/secrets.sh check; then ok "every Secret and key exists"; else fail "Secrets missing (above)"; fi
+# The Secrets the releases in helmfile.yaml.gotmpl use (each release checks its own before deploying)
+used=()
+while IFS= read -r name; do used+=("$name"); done < <(
+  grep -o 'args: \[check, [^]]*\]' helmfile.yaml.gotmpl | sed 's/.*check, //; s/\]//' | tr ',' '\n' | tr -d ' ' | sort -u)
+if ./scripts/secrets.sh check "${used[@]}"; then ok "the Secrets the releases use exist (${#used[@]})"; else fail "Secrets missing (above)"; fi
 
 echo "==> Release train"
 if helmfile template >/dev/null 2>"${TMPDIR:-/tmp}/helmfile-validate.log"; then

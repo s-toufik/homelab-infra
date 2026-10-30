@@ -193,7 +193,11 @@ Single-node k3s, Helm, the helm-diff plugin and helmfile. Versions used:
    sudo reboot
    ```
 2. Check: `command -v docker || echo gone` → `gone`.
-3. Optional, deletes the old containers and volumes for good:
+3. If `~/.docker/config.json` exists, drop its credential helper (Helm reads this file to pull charts):
+   ```bash
+   jq 'del(.credsStore)' ~/.docker/config.json > ~/.docker/config.json.new && mv ~/.docker/config.json.new ~/.docker/config.json
+   ```
+4. Optional, deletes the old containers and volumes for good:
    ```bash
    sudo du -sh /var/lib/docker /var/lib/containerd
    sudo rm -rf /var/lib/docker /var/lib/containerd
@@ -1022,6 +1026,15 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 **A pod is `CreateContainerConfigError`**
 1. `kubectl -n homelab describe pod <pod> | tail -n 20` → names the missing Secret or key.
 2. `make secrets`.
+
+**Pulling a chart fails with `docker-credential-desktop` (or another `docker-credential-…`) `not found`**
+1. Helm reads Docker's login settings, and they name a credential helper that isn't installed.
+2. Remove that setting, keeping a copy:
+   ```bash
+   cp ~/.docker/config.json ~/.docker/config.json.bak
+   jq 'del(.credsStore)' ~/.docker/config.json.bak > ~/.docker/config.json
+   ```
+3. `make validate` → `Helm can read the registry logins`.
 
 **A pod is `ImagePullBackOff`, or `make apply` says a chart is not found**
 1. `kubectl -n homelab describe pod <pod> | tail -n 20`, or `helm show chart oci://ghcr.io/s-toufik/charts/<chart> --version <version>`.
