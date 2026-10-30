@@ -45,10 +45,10 @@ help: ## Show this help
 .PHONY: env
 env: ## Create .env from .env.example (won't overwrite)
 	@if [ -f $(ENV_FILE) ]; then echo ".env already exists"; \
-	else cp .env.example $(ENV_FILE) && chmod 600 $(ENV_FILE) && echo "Created .env — run 'make secrets', then edit the remaining 'changeme' values"; fi
+	else cp .env.example $(ENV_FILE) && chmod 600 $(ENV_FILE) && echo "Created .env (readable by you only) — next: make secrets"; fi
 
 .PHONY: secrets
-secrets: check-env ## Fill generated secrets in .env (only those still empty or 'changeme')
+secrets: check-env ## Generate every 'changeme' password and secret in .env, then list what is left to set
 	@./scripts/secrets.sh
 
 .PHONY: check-env

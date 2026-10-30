@@ -45,9 +45,9 @@ Requirements: a Linux machine with Docker Engine and Docker Compose ≥ 2.20, an
 **The first time**
 
 ```bash
-make env                        # creates .env from .env.example
-make secrets                    # fills every generated secret with a random value
-nano .env                       # HOMELAB_DOMAIN=<machine>.<tailnet>.ts.net, then the remaining "changeme"
+make env                        # creates .env from .env.example (readable by you only, never overwritten)
+make secrets                    # every "changeme" password and secret → random value; lists what is left
+nano .env                       # what make secrets listed: HOMELAB_DOMAIN, LLM_BASE_URL, TOOLBOX_EXTRA_ALLOWED_HOSTS
 make validate                   # checks settings and every config file
 make up                         # pulls, builds and starts everything
 make user-add ACCOUNT=<name>    # your sign-in account (asks email, name and password)
@@ -231,14 +231,14 @@ Grafana is provisioned (`grafana/provisioning/`) with the three datasources cros
 
 ### Configuration
 
-Every setting is in `.env`; `scripts/validate.sh` refuses to start while a `changeme` is left. `make secrets` generates the random ones (only those still empty or `changeme`).
+Every setting is in `.env`; `scripts/validate.sh` refuses to start while a `changeme` is left. `make secrets` generates every password and secret still empty or `changeme` (hex values, safe in URLs and connection strings), never touches a value you set, and lists the settings only you can fill.
 
 | Group | Keys |
 |---|---|
 | Host | `BIND_ADDR` (`0.0.0.0` = LAN, `127.0.0.1` = this machine only, or a Tailscale IP), `HOST_NAME`, `TZ` |
 | Gateway | `HOMELAB_DOMAIN` (this machine's Tailscale name); generated: `OAUTH2_PROXY_CLIENT_SECRET`, `OAUTH2_PROXY_COOKIE_SECRET` (`make sessions-revoke` rotates it), `TASKER_GATEWAY_SECRET`, `GRAFANA_OIDC_CLIENT_SECRET`, `LLM_GATEWAY_API_KEY` — rotate any of them with `./scripts/secrets.sh --rotate <NAME>` then `make up` |
 | Image tags | `*_TAG`, one per service — pinned on purpose |
-| Credentials | `GRAFANA_ADMIN_*` (emergency local Grafana admin), `POSTGRES_*`, `MONGO_ROOT_*`; generated: `POSTGREST_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_DB_PASSWORD` (`KEYCLOAK_ADMIN_USER` is yours to set) |
+| Credentials | users are yours to set (`GRAFANA_ADMIN_USER` — emergency local Grafana admin —, `POSTGRES_USER`, `POSTGRES_DB`, `MONGO_ROOT_USER`, `KEYCLOAK_ADMIN_USER`); generated: `GRAFANA_ADMIN_PASSWORD`, `POSTGRES_PASSWORD`, `MONGO_ROOT_PASSWORD`, `POSTGREST_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_DB_PASSWORD`. The PostgreSQL and MongoDB passwords only apply when their volume is first created |
 | Retention | `PROMETHEUS_RETENTION_TIME`, `PROMETHEUS_RETENTION_SIZE` |
 | Kafka | `KAFKA_CLUSTER_ID`, `KAFKA_EXTERNAL_HOST` |
 | Apps | `TOOLBOX_EXTRA_ALLOWED_HOSTS`, `LLM_BASE_URL`, `LLM_API_KEY`, `LOG_LEVEL`; for agent-runtime also `WEB_DOCS`, `GUARDRAIL_ENABLED`, `MAX_CONCURRENT_STREAMS`, `AGENT_ANSWER_DELIVERY` |
