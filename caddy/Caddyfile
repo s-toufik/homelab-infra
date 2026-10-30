@@ -1,0 +1,226 @@
+{
+	auto_https disable_redirects
+}
+
+# Identity headers are set only by the gateway, never by the browser.
+(strip_identity) {
+	request_header -Remote-User
+	request_header -Remote-Email
+	request_header -X-Gateway-Secret
+	request_header -X-Auth-Request-User
+	request_header -X-Auth-Request-Email
+	request_header -X-Auth-Request-Preferred-Username
+	request_header -X-Auth-Request-Groups
+	request_header -X-Auth-Request-Access-Token
+}
+
+# Pages: signed-out visitors go to the sign-in page, then come back to the same address.
+(signed_in_page) {
+	forward_auth oauth2-proxy:4180 {
+		uri /oauth2/auth
+		header_up X-Real-IP {remote_host}
+		copy_headers X-Auth-Request-Preferred-Username>Remote-User X-Auth-Request-Email>Remote-Email
+
+		@signed_out status 401
+		handle_response @signed_out {
+			redir * https://{$HOMELAB_DOMAIN}/oauth2/sign_in?rd={scheme}://{http.request.hostport}{uri}
+		}
+	}
+}
+
+# APIs: signed-out calls get 401 instead of a redirect.
+(signed_in_api) {
+	forward_auth oauth2-proxy:4180 {
+		uri /oauth2/auth
+		header_up X-Real-IP {remote_host}
+		copy_headers X-Auth-Request-Preferred-Username>Remote-User X-Auth-Request-Email>Remote-Email
+
+		@signed_out status 401
+		handle_response @signed_out {
+			respond "Sign in required" 401
+		}
+	}
+}
+
+# A tool behind the sign-in, on its usual port. Browser cookies (the session) are not passed on.
+(signed_in_tool) {
+	route {
+		import strip_identity
+		import signed_in_page
+		reverse_proxy {args[0]} {
+			header_up -Cookie
+		}
+	}
+}
+
+# homelab-ui, the APIs it calls, and the sign-in endpoints
+{$HOMELAB_DOMAIN} {
+	route {
+		import strip_identity
+
+		handle /oauth2/* {
+			reverse_proxy oauth2-proxy:4180 {
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		handle /api/* {
+			import signed_in_api
+
+			handle_path /api/tasker/* {
+				reverse_proxy postgrest:3000 {
+					header_up X-Gateway-Secret {$TASKER_GATEWAY_SECRET}
+					header_up -Authorization
+					header_up -Cookie
+				}
+			}
+
+			handle_path /api/agent/* {
+				@blocked not path /v1/* /actuator/health/*
+				respond @blocked 404
+				reverse_proxy agent-runtime:8000 {
+					flush_interval -1
+					header_up -Cookie
+				}
+			}
+
+			handle_path /api/prometheus/* {
+				@blocked not path /api/v1/query /api/v1/query_range
+				respond @blocked 404
+				reverse_proxy prometheus:9090 {
+					header_up -Cookie
+				}
+			}
+
+			handle /api/health/grafana {
+				rewrite * /api/health
+				reverse_proxy grafana:3000 {
+					header_up -Cookie
+				}
+			}
+
+			handle /api/health/prometheus {
+				rewrite * /-/ready
+				reverse_proxy prometheus:9090 {
+					header_up -Cookie
+				}
+			}
+
+			handle /api/health/alloy {
+				rewrite * /-/ready
+				reverse_proxy alloy:12345 {
+					header_up -Cookie
+				}
+			}
+
+			handle /api/health/kafka-ui {
+				rewrite * /actuator/health
+				reverse_proxy kafka-ui:8080 {
+					header_up -Cookie
+				}
+			}
+
+			handle /api/health/llm {
+				rewrite * /health
+				reverse_proxy llm:8080 {
+					header_up -Cookie
+				}
+			}
+
+			respond "Not found" 404
+		}
+
+		handle {
+			import signed_in_page
+			reverse_proxy homelab-ui:8080 {
+				header_up -Cookie
+			}
+		}
+	}
+}
+
+# Keycloak: login, password change and sign-out pages. Accounts are managed from the terminal.
+{$HOMELAB_DOMAIN}:8443 {
+	@admin path /admin /admin/*
+	respond @admin "Not available" 403
+
+	reverse_proxy keycloak:8080
+}
+
+# Grafana signs in with Keycloak itself (single sign-on, roles from Keycloak).
+{$HOMELAB_DOMAIN}:3000 {
+	route {
+		import strip_identity
+		reverse_proxy grafana:3000
+	}
+}
+
+# Prometheus: the lifecycle endpoints stay off the network (use `make reload-prometheus`).
+{$HOMELAB_DOMAIN}:9090 {
+	route {
+		import strip_identity
+		import signed_in_page
+		@lifecycle path /-/quit /-/reload
+		respond @lifecycle "Not available" 403
+		reverse_proxy prometheus:9090 {
+			header_up -Cookie
+		}
+	}
+}
+
+{$HOMELAB_DOMAIN}:8080 {
+	import signed_in_tool kafka-ui:8080
+}
+
+{$HOMELAB_DOMAIN}:12345 {
+	import signed_in_tool alloy:12345
+}
+
+{$HOMELAB_DOMAIN}:3100 {
+	import signed_in_tool loki:3100
+}
+
+{$HOMELAB_DOMAIN}:3200 {
+	import signed_in_tool tempo:3200
+}
+
+{$HOMELAB_DOMAIN}:9308 {
+	import signed_in_tool kafka-exporter:9308
+}
+
+# LLM: the playground needs a sign-in; scripts and OpenAI clients use the API key instead.
+{$HOMELAB_DOMAIN}:8090 {
+	@api_key header Authorization "Bearer {$LLM_GATEWAY_API_KEY}"
+
+	route {
+		import strip_identity
+
+		handle @api_key {
+			reverse_proxy llm:8080 {
+				flush_interval -1
+				header_up -Authorization
+			}
+		}
+
+		handle /v1/* {
+			import signed_in_api
+			reverse_proxy llm:8080 {
+				flush_interval -1
+				header_up -Cookie
+			}
+		}
+
+		handle {
+			import signed_in_page
+			reverse_proxy llm:8080 {
+				flush_interval -1
+				header_up -Cookie
+			}
+		}
+	}
+}
+
+# Old homelab-ui address
+:8002 {
+	redir https://{$HOMELAB_DOMAIN}{uri} permanent
+}

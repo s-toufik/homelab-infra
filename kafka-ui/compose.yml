@@ -7,16 +7,13 @@ services:
       kafka:
         condition: service_healthy
     environment:
-      AUTH_TYPE: LOGIN_FORM
-      SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER:-admin}
-      SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD:?KAFKA_UI_PASSWORD must be set in .env}
+      # No login of its own: the gateway's sign-in protects it (AUTH_TYPE left at its default, disabled)
       KAFKA_CLUSTERS_0_NAME: homelab
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
       DYNAMIC_CONFIG_ENABLED: "false"
       LOGGING_LEVEL_ROOT: warn
       JAVA_OPTS: -Xms256m -Xmx512m
-    ports:
-      - "${BIND_ADDR:-127.0.0.1}:8080:8080"
+    # No published port: Caddy serves it with HTTPS and sign-in (see caddy/Caddyfile)
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 768m }

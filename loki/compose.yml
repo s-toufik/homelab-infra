@@ -18,8 +18,7 @@ services:
     volumes:
       - ./config.yml:/etc/loki/config.yml:ro
       - loki-data:/loki
-    ports:
-      - "${BIND_ADDR:-127.0.0.1}:3100:3100"
+    # No published port: Caddy serves it with HTTPS and sign-in (see caddy/Caddyfile)
     deploy:
       resources:
         limits: { cpus: "2.0", memory: 3g }

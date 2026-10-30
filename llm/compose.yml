@@ -20,8 +20,7 @@ services:
     volumes:
       - llm-models:/models
       - ./config.yml:/app/config.yaml:ro
-    ports:
-      - "${BIND_ADDR:-127.0.0.1}:8090:8080"
+    # No published port: Caddy serves it with HTTPS and sign-in (see caddy/Caddyfile)
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
       interval: 30s

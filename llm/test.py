@@ -4,16 +4,32 @@
   python3 llm/test.py ask     <base_url> <model> "question"
   python3 llm/test.py tools   <base_url> <model>
   python3 llm/test.py running <base_url>
+
+Through the gateway (https://<HOMELAB_DOMAIN>:8090), set LLM_GATEWAY_API_KEY: it is sent as a
+Bearer token. The Makefile targets load it from .env.
 """
 import json
+import os
 import sys
 import time
 import urllib.request
 
 
+def headers(extra=None):
+    result = dict(extra or {})
+    key = os.environ.get("LLM_GATEWAY_API_KEY")
+    if key:
+        result["Authorization"] = f"Bearer {key}"
+    return result
+
+
+def get(url, timeout):
+    return urllib.request.urlopen(urllib.request.Request(url, headers=headers()), timeout=timeout)
+
+
 def post(base, payload):
     req = urllib.request.Request(f"{base}/v1/chat/completions", data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json"}, method="POST")
+                                 headers=headers({"Content-Type": "application/json"}), method="POST")
     start = time.time()
     with urllib.request.urlopen(req, timeout=300) as r:
         return json.load(r), time.time() - start
@@ -57,9 +73,9 @@ def tools(base, model):
 
 
 def running(base):
-    with urllib.request.urlopen(f"{base}/v1/models", timeout=10) as r:
+    with get(f"{base}/v1/models", timeout=10) as r:
         all_models = [m["id"] for m in json.load(r)["data"]]
-    with urllib.request.urlopen(f"{base}/running", timeout=10) as r:
+    with get(f"{base}/running", timeout=10) as r:
         live = {m["model"]: m["state"] for m in json.load(r)["running"]}
     for name in all_models:
         state = live.get(name)

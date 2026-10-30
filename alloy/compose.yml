@@ -24,8 +24,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /dev/disk:/dev/disk:ro
       - /run/udev/data:/host/run/udev/data:ro
-    ports:
-      - "${BIND_ADDR:-127.0.0.1}:12345:12345"  # Alloy UI (pipeline graph)
+    # No published port: Caddy serves it with HTTPS and sign-in (see caddy/Caddyfile)
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 768m }

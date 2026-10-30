@@ -18,6 +18,12 @@ include:
   - mongodb/compose.yml
   - postgres-exporter/compose.yml
   - mongodb-exporter/compose.yml
+  - database/compose.yml
+  - postgrest/compose.yml
+  # --- Gateway (HTTPS, sign-in) ---
+  - caddy/compose.yml
+  - keycloak/compose.yml
+  - oauth2-proxy/compose.yml
   # --- LLM ---
   - llm/compose.yml
   # --- Applications ---

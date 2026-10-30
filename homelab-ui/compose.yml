@@ -8,8 +8,7 @@ services:
         condition: service_started
     environment:
       TZ: ${TZ:-UTC}
-    ports:
-      - "${BIND_ADDR:-127.0.0.1}:8002:8080"
+    # No published port: served by Caddy at https://${HOMELAB_DOMAIN}/ (old port 8002 redirects there)
     deploy:
       resources:
         limits: { cpus: "0.5", memory: 128m }

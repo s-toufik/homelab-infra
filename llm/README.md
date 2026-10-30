@@ -21,8 +21,8 @@ The three small Qwen models (under 3B) are meant for tool calling and agent loop
 
 Some entries use community GGUF conversions because the original org doesn't publish one: `ministral-8b-instruct-2410` (bartowski) and the `qwen3.5-*` models (unsloth).
 
-- From containers: `http://llm:8080/v1`
-- From your devices: `http://<BIND_ADDR>:8090/v1`
+- From containers: `http://llm:8080/v1` (no key)
+- From your devices: `https://<HOMELAB_DOMAIN>:8090/v1` with the header `Authorization: Bearer <LLM_GATEWAY_API_KEY>` (from `.env`); the playground `https://<HOMELAB_DOMAIN>:8090/ui` uses your sign-in instead
 
 ## First start
 
@@ -59,12 +59,18 @@ client = OpenAI(base_url="http://llm:8080/v1", api_key="not-needed")
 resp = client.chat.completions.create(model="qwen3-8b", messages=[{"role": "user", "content": "Hi"}], tools=[...])
 ```
 
+From another machine, through the gateway — the OpenAI client sends `api_key` as the Bearer token the gateway expects:
+
+```python
+client = OpenAI(base_url="https://<HOMELAB_DOMAIN>:8090/v1", api_key="<LLM_GATEWAY_API_KEY>")
+```
+
 Pass whichever `model` you want per request — swapping happens automatically.
 
 ## Check what's loaded right now
 
 - Grafana → **Homelab → LLM (llama.cpp)** → "Currently Loaded Models" table.
-- Or: `curl http://<BIND_ADDR>:8090/running`
+- Or: `make llm-running`
 
 A model that isn't listed isn't loaded.
 

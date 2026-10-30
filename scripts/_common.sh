@@ -21,6 +21,23 @@ load_env() {
   set +a
 }
 
+# Runs Keycloak's admin CLI inside the keycloak container, signed in as the bootstrap admin.
+# The admin password travels on stdin, so it never appears in the host's process list or in
+# `docker inspect`. Arguments are passed to kcadm.sh verbatim.
+kcadm() {
+  printf '%s\n' "$KEYCLOAK_ADMIN_PASSWORD" |
+    docker compose exec -T -e KCADM_ADMIN="${KEYCLOAK_ADMIN_USER:-admin}" keycloak bash -c '
+      set -e
+      IFS= read -r admin_password
+      kc=/opt/keycloak/bin/kcadm.sh
+      cfg=/tmp/kcadm-$$.config
+      trap "rm -f $cfg" EXIT
+      "$kc" config credentials --config "$cfg" --server http://localhost:8080 \
+        --realm master --user "$KCADM_ADMIN" --password "$admin_password" >/dev/null
+      "$kc" "$@" --config "$cfg"
+    ' kcadm "$@"
+}
+
 RELOADABLE=(prometheus alloy)
 
 reload_configs() {

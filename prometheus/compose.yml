@@ -16,8 +16,7 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
       - llm-sd:/etc/prometheus/file_sd/llm:ro   # written by llm-sd-exporter (llm/compose.yml)
-    ports:
-      - "${BIND_ADDR:-127.0.0.1}:9090:9090"
+    # No published port: Caddy serves it with HTTPS and sign-in (see caddy/Caddyfile)
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
       interval: 15s

@@ -19,13 +19,35 @@ fi
 
 echo "==> .env"
 load_env
-for var in GRAFANA_ADMIN_PASSWORD POSTGRES_PASSWORD MONGO_ROOT_PASSWORD KAFKA_CLUSTER_ID; do
+for var in GRAFANA_ADMIN_PASSWORD POSTGRES_PASSWORD POSTGREST_PASSWORD MONGO_ROOT_PASSWORD KAFKA_CLUSTER_ID \
+  KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_DB_PASSWORD OAUTH2_PROXY_CLIENT_SECRET OAUTH2_PROXY_COOKIE_SECRET \
+  TASKER_GATEWAY_SECRET GRAFANA_OIDC_CLIENT_SECRET LLM_GATEWAY_API_KEY; do
   value="${!var:-}"
-  if [[ -z "$value" ]]; then fail "$var is empty"
-  elif [[ "$value" == "changeme" ]]; then fail "$var still set to 'changeme'"
+  if [[ -z "$value" ]]; then fail "$var is empty (make secrets generates it)"
+  elif [[ "$value" == "changeme" ]]; then fail "$var still set to 'changeme' (make secrets generates it)"
   else ok "$var set"; fi
 done
+for var in POSTGREST_PASSWORD KEYCLOAK_DB_PASSWORD; do
+  [[ "${!var:-}" =~ ^[A-Za-z0-9]+$ ]] || fail "$var must use letters and digits only (it is part of a connection string)"
+done
+case "${#OAUTH2_PROXY_COOKIE_SECRET}" in
+  16 | 24 | 32) ok "OAUTH2_PROXY_COOKIE_SECRET has a valid length" ;;
+  *) fail "OAUTH2_PROXY_COOKIE_SECRET must be 16, 24 or 32 characters (make secrets generates it)" ;;
+esac
+if [[ "${HOMELAB_DOMAIN:-}" =~ ^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$ && "${HOMELAB_DOMAIN}" != *your-tailnet* ]]; then
+  ok "HOMELAB_DOMAIN=$HOMELAB_DOMAIN"
+else
+  fail "HOMELAB_DOMAIN must be this machine's Tailscale name, like sirius.<tailnet>.ts.net"
+fi
 [[ "${BIND_ADDR:-}" == "0.0.0.0" ]] && yellow "  ! BIND_ADDR=0.0.0.0: services are reachable from the whole LAN"
+[[ "${BIND_ADDR:-127.0.0.1}" == "127.0.0.1" ]] && yellow "  ! BIND_ADDR=127.0.0.1: the gateway is unreachable from other devices"
+
+echo "==> Tailscale"
+if [[ -S /var/run/tailscale/tailscaled.sock ]]; then
+  ok "tailscaled socket present (Caddy gets its certificate there)"
+else
+  fail "/var/run/tailscale/tailscaled.sock not found: Tailscale must run on this machine"
+fi
 
 echo "==> Compose model"
 if docker compose config -q; then ok "compose.yml + includes are valid"; else fail "docker compose config failed"; fi
@@ -51,6 +73,19 @@ run_check "otel-collector config.yml" \
 run_check "config.alloy (syntax)" \
   -v "$ROOT_DIR/alloy/config.alloy:/cfg.alloy:ro" \
   "grafana/alloy:${ALLOY_TAG}" fmt /cfg.alloy
+
+run_check "Caddyfile (caddy validate)" \
+  -v "$ROOT_DIR/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  -e HOMELAB_DOMAIN -e TASKER_GATEWAY_SECRET -e LLM_GATEWAY_API_KEY \
+  "caddy:${CADDY_TAG}" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+if bash -n keycloak/sync.sh; then ok "keycloak/sync.sh (syntax)"; else fail "keycloak/sync.sh has a syntax error"; fi
+
+echo "==> Database migrations"
+for f in database/migrations/*.sql; do
+  if grep -q '^-- migrate:up' "$f" && grep -q '^-- migrate:down' "$f"; then ok "$f"
+  else fail "$f needs both '-- migrate:up' and '-- migrate:down'"; fi
+done
 
 echo "==> Grafana dashboards (JSON)"
 for f in grafana/dashboards/*.json; do

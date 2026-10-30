@@ -20,8 +20,7 @@ services:
     volumes:
       - ./config.yml:/etc/tempo/config.yml:ro
       - tempo-data:/var/tempo
-    ports:
-      - "${BIND_ADDR:-127.0.0.1}:3200:3200"   # query API (OTLP stays internal, use otel-collector)
+    # No published port: Caddy serves it with HTTPS and sign-in (see caddy/Caddyfile)
     deploy:
       resources:
         limits: { cpus: "2.0", memory: 3g }

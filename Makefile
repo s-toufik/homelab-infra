@@ -13,6 +13,8 @@ COMPOSE  := set -a; [ -f $(ENV_FILE) ] && . ./$(ENV_FILE); set +a; docker compos
 
 # Address the published ports listen on (BIND_ADDR from .env, e.g. your Tailscale IP)
 HOST := $(shell [ -f .env ] && . ./.env; echo "$${BIND_ADDR:-127.0.0.1}")
+# Tailscale name the gateway answers on (HOMELAB_DOMAIN from .env)
+DOMAIN := $(shell [ -f .env ] && . ./.env; echo "$${HOMELAB_DOMAIN:-}")
 
 # Optional service selection
 S ?=
@@ -21,8 +23,12 @@ TAIL ?= 200
 # Service groups
 OBS   := prometheus loki tempo otel-collector alloy grafana
 KAFKA := kafka kafka-ui kafka-exporter
-DB    := postgres mongodb postgres-exporter mongodb-exporter
+DB    := postgres mongodb postgres-exporter mongodb-exporter postgrest
+GATEWAY := caddy keycloak oauth2-proxy
 APPS  := agent-toolbox agent-runtime homelab-ui
+
+# Sign-in account for the user-* targets (not USER, which make inherits from your shell)
+ACCOUNT ?=
 
 BACKUP_DIR := backups
 DATE := $(shell date +%F_%H%M)
@@ -39,7 +45,11 @@ help: ## Show this help
 .PHONY: env
 env: ## Create .env from .env.example (won't overwrite)
 	@if [ -f $(ENV_FILE) ]; then echo ".env already exists"; \
-	else cp .env.example $(ENV_FILE) && echo "Created .env — edit the 'changeme' values"; fi
+	else cp .env.example $(ENV_FILE) && chmod 600 $(ENV_FILE) && echo "Created .env — run 'make secrets', then edit the remaining 'changeme' values"; fi
+
+.PHONY: secrets
+secrets: check-env ## Fill generated secrets in .env (only those still empty or 'changeme')
+	@./scripts/secrets.sh
 
 .PHONY: check-env
 check-env:
@@ -94,13 +104,15 @@ update: check-env ## Pull new images then recreate changed containers
 
 ##@ Groups
 
-.PHONY: up-obs up-kafka up-db up-apps up-llm
+.PHONY: up-obs up-kafka up-db up-gateway up-apps up-llm
 up-obs: check-env ## Start observability only (Prometheus, Loki, Tempo, OTel, Alloy, Grafana)
 	@$(COMPOSE) up -d $(OBS)
 up-kafka: check-env ## Start Kafka, Kafka UI, exporter
 	@$(COMPOSE) up -d $(KAFKA)
-up-db: check-env ## Start PostgreSQL, MongoDB and their exporters
+up-db: check-env ## Start PostgreSQL, MongoDB, their exporters and PostgREST
 	@$(COMPOSE) up -d $(DB)
+up-gateway: check-env ## Start the gateway: Caddy (HTTPS), Keycloak and oauth2-proxy (sign-in)
+	@$(COMPOSE) up -d $(GATEWAY)
 up-apps: check-env ## Start agent-toolbox and agent-runtime (pulls if missing)
 	@$(COMPOSE) up -d $(APPS)
 up-llm: check-env ## Start the LLM server (llama-swap)
@@ -124,36 +136,77 @@ logs: check-env ## Follow logs (S="..." TAIL=500)
 stats: ## Live CPU / memory per container
 	@docker stats --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}'
 
-# Endpoints checked by `make health`. Remove a line if you removed that service's published port.
-HEALTH_URLS := \
-  'grafana|http://$(HOST):3000/api/health' \
-  'prometheus|http://$(HOST):9090/-/ready' \
-  'loki|http://$(HOST):3100/ready' \
-  'tempo|http://$(HOST):3200/ready' \
-  'otel-collector|http://$(HOST):13133/' \
-  'alloy|http://$(HOST):12345/-/ready' \
-  'kafka-exporter|http://$(HOST):9308/metrics' \
-  'agent-toolbox|http://$(HOST):8001/actuator/health' \
-  'agent-runtime|http://$(HOST):8000/actuator/health' \
-  'homelab-ui|http://$(HOST):8002/' \
-  'llm|http://$(HOST):8090/health'
+# `make health` checks every service from inside the Docker network (through the caddy container,
+# so no sign-in is needed), then the gateway itself from this machine over HTTPS.
+# Add a line when you add a service with an HTTP endpoint.
+HEALTH_INTERNAL := \
+  'homelab-ui|http://homelab-ui:8080/' \
+  'grafana|http://grafana:3000/api/health' \
+  'prometheus|http://prometheus:9090/-/ready' \
+  'loki|http://loki:3100/ready' \
+  'tempo|http://tempo:3200/ready' \
+  'otel-collector|http://otel-collector:13133/' \
+  'alloy|http://alloy:12345/-/ready' \
+  'kafka-ui|http://kafka-ui:8080/actuator/health' \
+  'kafka-exporter|http://kafka-exporter:9308/metrics' \
+  'agent-toolbox|http://agent-toolbox:8001/actuator/health' \
+  'agent-runtime|http://agent-runtime:8000/actuator/health' \
+  'keycloak|http://keycloak:9000/health/ready' \
+  'llm|http://llm:8080/health'
+HEALTH_GATEWAY := \
+  'gateway|https://$(DOMAIN)/oauth2/ping' \
+  'sign-in|https://$(DOMAIN):8443/realms/homelab/.well-known/openid-configuration'
+
+# Fetches a URL from inside the Docker network (busybox wget in the caddy container)
+INSIDE := $(COMPOSE) exec -T caddy wget -q -T 5 -O -
 
 .PHONY: health
-health: ## Quick HTTP health checks of main endpoints
-	@for u in $(HEALTH_URLS); do \
+health: check-env ## Quick health checks: every service inside Docker, then the gateway over HTTPS
+	@for u in $(HEALTH_INTERNAL); do \
 	  name=$${u%%|*}; url=$${u#*|}; \
-	  if curl -fsS -o /dev/null --max-time 3 "$$url"; then printf "  \033[32m✓\033[0m %s\n" "$$name"; \
+	  if $(INSIDE) "$$url" >/dev/null 2>&1; then printf "  \033[32m✓\033[0m %s\n" "$$name"; \
+	  else printf "  \033[31m✗\033[0m %s  (%s)\n" "$$name" "$$url"; fi; \
+	done
+	@for u in $(HEALTH_GATEWAY); do \
+	  name=$${u%%|*}; url=$${u#*|}; \
+	  if curl -fsS -o /dev/null --max-time 5 "$$url"; then printf "  \033[32m✓\033[0m %s\n" "$$name"; \
 	  else printf "  \033[31m✗\033[0m %s  (%s)\n" "$$name" "$$url"; fi; \
 	done
 
 .PHONY: targets
-targets: ## Prometheus scrape targets and their state
-	@curl -fsS http://$(HOST):9090/api/v1/targets | \
+targets: check-env ## Prometheus scrape targets and their state
+	@$(INSIDE) http://prometheus:9090/api/v1/targets | \
 	  python3 -c 'import sys,json; [print("  %7s  %-16s %s" % (t["health"], t["labels"]["job"], t["scrapeUrl"])) for t in json.load(sys.stdin)["data"]["activeTargets"]]'
 
 .PHONY: volumes
 volumes: ## List data volumes and their size
 	@docker system df -v | awk '/^VOLUME NAME/{f=1} f&&/^$$/{exit} f' | grep -E '^(VOLUME NAME|homelab_)' || true
+
+.PHONY: verify
+verify: check-env ## Check HTTPS, sign-in, password policy, Tasker API protection and per-user data
+	@./scripts/verify.sh
+
+##@ Users (sign-in accounts, managed only from this terminal)
+
+.PHONY: users user-add user-password user-disable user-enable user-unlock user-admin sessions-revoke
+users: check-env ## List sign-in accounts
+	@./scripts/users.sh list
+user-add: check-env ## Create an account: make user-add ACCOUNT=<name> (asks email, name, password)
+	@./scripts/users.sh add "$(ACCOUNT)"
+user-password: check-env ## Set a new password: make user-password ACCOUNT=<name>
+	@./scripts/users.sh password "$(ACCOUNT)"
+user-disable: check-env ## Disable an account and end its Keycloak sessions: make user-disable ACCOUNT=<name>
+	@./scripts/users.sh disable "$(ACCOUNT)"
+user-enable: check-env ## Enable a disabled account: make user-enable ACCOUNT=<name>
+	@./scripts/users.sh enable "$(ACCOUNT)"
+user-unlock: check-env ## Clear a lock after too many wrong passwords: make user-unlock ACCOUNT=<name>
+	@./scripts/users.sh unlock "$(ACCOUNT)"
+user-admin: check-env ## Give an account the 'admin' role: make user-admin ACCOUNT=<name>
+	@./scripts/users.sh admin "$(ACCOUNT)"
+sessions-revoke: check-env ## Sign every account out now (new cookie key + end Keycloak sessions)
+	@./scripts/secrets.sh --rotate OAUTH2_PROXY_COOKIE_SECRET
+	@$(COMPOSE) up -d --force-recreate oauth2-proxy
+	@./scripts/users.sh logout-all
 
 ##@ Shells
 
@@ -216,32 +269,34 @@ reload-alloy: check-env ## Hot-reload config.alloy (make up does it too)
 M ?= qwen3-8b
 Q ?= What is Apache Kafka? Answer in two sentences.
 LLM_PORT := 8090
+# llm/test.py goes through the gateway with the LLM API key from .env
+LLM_TEST := set -a; . ./$(ENV_FILE); set +a; python3 llm/test.py
 
 .PHONY: llm-down
 llm-down: check-env ## Stop the LLM server (frees the RAM of always-on models)
 	@$(COMPOSE) stop llm
 
 .PHONY: llm-status
-llm-status: ## Health check and list of models served by llama-swap
-	@if curl -fsS -o /dev/null --max-time 3 "http://$(HOST):$(LLM_PORT)/health"; then \
+llm-status: check-env ## Health check and list of models served by llama-swap
+	@if $(INSIDE) http://llm:8080/health >/dev/null 2>&1; then \
 	  printf "  \033[32m✓\033[0m llm  :%s\n" "$(LLM_PORT)"; \
-	  curl -fsS --max-time 3 "http://$(HOST):$(LLM_PORT)/v1/models" | \
+	  $(INSIDE) http://llm:8080/v1/models | \
 	    python3 -c 'import sys,json; [print("      -", m["id"]) for m in json.load(sys.stdin)["data"]]'; \
 	else \
 	  printf "  \033[31m✗\033[0m llm  :%s  not ready (downloading, loading or stopped)\n" "$(LLM_PORT)"; \
 	fi
 
 .PHONY: llm-running
-llm-running: ## Show which models are currently loaded (UP) vs not (DOWN)
-	@python3 llm/test.py running "http://$(HOST):$(LLM_PORT)"
+llm-running: check-env ## Show which models are currently loaded (UP) vs not (DOWN)
+	@$(LLM_TEST) running "https://$(DOMAIN):$(LLM_PORT)"
 
 .PHONY: llm-logs
 llm-logs: check-env ## Follow llama-swap logs
 	@$(COMPOSE) logs -f --tail=$(TAIL) llm
 
 .PHONY: llm-ask
-llm-ask: ## Ask a question: make llm-ask [M=<model>] [Q="..."] — see llm/config.yml for model names
-	@python3 llm/test.py ask "http://$(HOST):$(LLM_PORT)" "$(M)" "$(Q)"
+llm-ask: check-env ## Ask a question: make llm-ask [M=<model>] [Q="..."] — see llm/config.yml for model names
+	@$(LLM_TEST) ask "https://$(DOMAIN):$(LLM_PORT)" "$(M)" "$(Q)"
 
 ##@ Backup
 
@@ -251,11 +306,15 @@ backup: ## Backup PostgreSQL and MongoDB into ./backups
 	@$(MAKE) backup-mongo
 
 .PHONY: backup-postgres
-backup-postgres: check-env ## Dump PostgreSQL (custom format)
+backup-postgres: check-env ## Dump PostgreSQL: the homelab database and keycloak (sign-in accounts)
 	@mkdir -p $(BACKUP_DIR)
 	@out=$(BACKUP_DIR)/postgres_$(DATE).dump; \
 	$(COMPOSE) exec -T postgres sh -c 'pg_dump -U "$$POSTGRES_USER" -Fc "$$POSTGRES_DB"' > "$$out.tmp" \
 	  || { rm -f "$$out.tmp"; echo "PostgreSQL backup FAILED"; exit 1; }; \
+	mv "$$out.tmp" "$$out"; echo "→ $$out"
+	@out=$(BACKUP_DIR)/keycloak_$(DATE).dump; \
+	$(COMPOSE) exec -T postgres sh -c 'pg_dump -U "$$POSTGRES_USER" -Fc keycloak' > "$$out.tmp" \
+	  || { rm -f "$$out.tmp"; echo "Keycloak backup FAILED"; exit 1; }; \
 	mv "$$out.tmp" "$$out"; echo "→ $$out"
 
 .PHONY: backup-mongo
@@ -267,13 +326,14 @@ backup-mongo: check-env ## Dump MongoDB (gzip archive)
 	mv "$$out.tmp" "$$out"; echo "→ $$out"
 
 FILE ?=
+DB ?=
 
 .PHONY: restore-postgres
-restore-postgres: check-env ## Restore PostgreSQL (REPLACES data): make restore-postgres FILE=backups/x.dump
-	@[ -f "$(FILE)" ] || { echo "Usage: make restore-postgres FILE=<dump>"; exit 1; }
-	@read -r -p "This REPLACES the current PostgreSQL data with $(FILE). Type 'restore' to confirm: " a; \
+restore-postgres: check-env ## Restore PostgreSQL (REPLACES data): make restore-postgres FILE=backups/x.dump [DB=keycloak]
+	@[ -f "$(FILE)" ] || { echo "Usage: make restore-postgres FILE=<dump> [DB=keycloak]"; exit 1; }
+	@read -r -p "This REPLACES the current PostgreSQL data$(if $(DB), of $(DB),) with $(FILE). Type 'restore' to confirm: " a; \
 	  [ "$$a" = "restore" ] || { echo "Aborted."; exit 1; }
-	@$(COMPOSE) exec -T postgres sh -c 'pg_restore -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" --clean --if-exists' < "$(FILE)"
+	@$(COMPOSE) exec -T -e RESTORE_DB="$(DB)" postgres sh -c 'pg_restore -U "$$POSTGRES_USER" -d "$${RESTORE_DB:-$$POSTGRES_DB}" --clean --if-exists' < "$(FILE)"
 	@echo "PostgreSQL restored from $(FILE)"
 
 .PHONY: restore-mongo
