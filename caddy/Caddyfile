@@ -58,6 +58,11 @@
 	route {
 		import strip_identity
 
+		# Answered by Caddy itself: proves HTTPS and the certificate work, reveals nothing.
+		handle /healthz {
+			respond "OK" 200
+		}
+
 		handle /oauth2/* {
 			reverse_proxy oauth2-proxy:4180 {
 				header_up X-Real-IP {remote_host}

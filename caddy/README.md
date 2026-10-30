@@ -7,7 +7,8 @@ Browser ── HTTPS ──► caddy ── "signed in?" ──► oauth2-proxy 
                        │      yes: Remote-User = account
                        │      no:  pages → https://<HOMELAB_DOMAIN>/oauth2/sign_in, then back; APIs → 401
                        │
-  :443   /                  homelab-ui
+  :443   /healthz           answered by Caddy ("OK", no sign-in): HTTPS and certificate check
+         /                  homelab-ui
          /api/agent/…       agent-runtime   (/v1/*, /actuator/health/* only; streaming on)
          /api/prometheus/…  prometheus      (/api/v1/query, /api/v1/query_range only)
          /api/tasker/…      postgrest       (+ X-Gateway-Secret)

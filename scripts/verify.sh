@@ -28,7 +28,9 @@ psql_homelab() {
 
 echo "==> HTTPS and sign-in"
 expect "the gateway answers over HTTPS with a trusted certificate ($site)" \
-  equals "$(curl -fsS --max-time 10 "$site/oauth2/ping" 2>/dev/null || true)" "OK"
+  equals "$(curl -fsS --max-time 10 "$site/healthz" 2>/dev/null || true)" "OK"
+expect "the sign-in check (oauth2-proxy) is up" \
+  docker compose exec -T caddy wget -q -T 5 -O /dev/null http://oauth2-proxy:4180/ping
 expect "homelab-ui sends signed-out visitors to the sign-in page" \
   contains "$(redirect_to "$site/")" "/oauth2/sign_in"
 expect "the Tasker API answers 401 when signed out" \
@@ -75,12 +77,13 @@ expect "Grafana signs in with Keycloak" \
   contains "$(redirect_to "https://${domain}:3000/login/generic_oauth")" "$signin/realms/homelab/protocol/openid-connect/auth"
 grafana_client="$(kcadm get clients -r homelab -q clientId=grafana --fields clientId --format csv --noquotes 2>/dev/null || true)"
 expect "Keycloak has the Grafana client" equals "$grafana_client" "grafana"
+# `docker port` lists only real host bindings (an image's declared EXPOSE ports don't count).
 published=""
-for target in homelab-ui:8080 grafana:3000 prometheus:9090 kafka-ui:8080 alloy:12345 loki:3100 \
-  tempo:3200 kafka-exporter:9308 llm:8080 keycloak:8080 oauth2-proxy:4180 postgrest:3000; do
-  [[ -z "$(docker compose port "${target%%:*}" "${target#*:}" 2>/dev/null || true)" ]] || published+=" $target"
+for container in homelab-ui grafana prometheus kafka-ui alloy loki tempo kafka-exporter llm \
+  keycloak oauth2-proxy postgrest; do
+  [[ -z "$(docker port "$container" 2>/dev/null || true)" ]] || published+=" $container"
 done
-expect "only Caddy publishes the web ports (none published directly:${published:- ok})" equals "$published" ""
+expect "only Caddy publishes the web ports (published directly:${published:- none})" equals "$published" ""
 
 echo "==> PostgREST (Tasker API)"
 no_secret="$(docker compose exec -T caddy wget -S -q -O /dev/null http://postgrest:3000/workflows 2>&1 || true)"

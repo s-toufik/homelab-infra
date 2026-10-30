@@ -152,9 +152,10 @@ HEALTH_INTERNAL := \
   'agent-toolbox|http://agent-toolbox:8001/actuator/health' \
   'agent-runtime|http://agent-runtime:8000/actuator/health' \
   'keycloak|http://keycloak:9000/health/ready' \
+  'oauth2-proxy|http://oauth2-proxy:4180/ping' \
   'llm|http://llm:8080/health'
 HEALTH_GATEWAY := \
-  'gateway|https://$(DOMAIN)/oauth2/ping' \
+  'gateway|https://$(DOMAIN)/healthz' \
   'sign-in|https://$(DOMAIN):8443/realms/homelab/.well-known/openid-configuration'
 
 # Fetches a URL from inside the Docker network (busybox wget in the caddy container)

@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-red()   { printf '\033[31m%s\033[0m\n' "$*"; }
+red()   { printf '\033[31m%s\033[0m\n' "$*" >&2; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
 
@@ -32,8 +32,9 @@ kcadm() {
       kc=/opt/keycloak/bin/kcadm.sh
       cfg=/tmp/kcadm-$$.config
       trap "rm -f $cfg" EXIT
-      "$kc" config credentials --config "$cfg" --server http://localhost:8080 \
-        --realm master --user "$KCADM_ADMIN" --password "$admin_password" >/dev/null
+      login=$("$kc" config credentials --config "$cfg" --server http://localhost:8080 \
+        --realm master --user "$KCADM_ADMIN" --password "$admin_password" 2>&1) ||
+        { echo "$login" >&2; exit 1; }
       "$kc" "$@" --config "$cfg"
     ' kcadm "$@"
 }

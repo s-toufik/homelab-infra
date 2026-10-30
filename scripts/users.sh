@@ -42,7 +42,7 @@ ask_password() {
 user_id() {
   local id
   id="$(kcadm get users -r "$REALM" -q username="$account" -q exact=true --fields id --format csv --noquotes)"
-  [[ -n "$id" ]] || { red "No account named '$account'."; exit 1; }
+  [[ -n "$id" ]] || { red "No account named '$account' (list them with: make users)."; exit 1; }
   printf '%s' "$id"
 }
 
@@ -60,8 +60,9 @@ set_password() {
         kc=/opt/keycloak/bin/kcadm.sh
         cfg=/tmp/kcadm-$$.config
         trap "rm -f $cfg" EXIT
-        "$kc" config credentials --config "$cfg" --server http://localhost:8080 \
-          --realm master --user "$KCADM_ADMIN" --password "$admin_password" >/dev/null
+        login=$("$kc" config credentials --config "$cfg" --server http://localhost:8080 \
+          --realm master --user "$KCADM_ADMIN" --password "$admin_password" 2>&1) ||
+          { echo "$login" >&2; exit 1; }
         "$kc" set-password --config "$cfg" -r "$REALM" --username "$ACCOUNT" --new-password "$new_password"
       '
   unset NEW_PASSWORD
