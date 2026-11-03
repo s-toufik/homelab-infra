@@ -1,6 +1,6 @@
 # Kafka Exporter
 
-Exposes Kafka topic and consumer-group metrics in Prometheus format on `:9308/metrics`. Prometheus scrapes it every 30 s (see `observability/metrics/prometheus/prometheus.yml`).
+Exposes Kafka topic and consumer-group metrics in Prometheus format on `kafka-exporter:9308/metrics` (and `https://<domain>:9308` through the gateway, signed in). Prometheus finds it from its pod's `metrics:` annotation ([`values.yaml.gotmpl`](values.yaml.gotmpl)).
 
 Key metrics:
 
@@ -11,4 +11,4 @@ Key metrics:
 | `kafka_consumergroup_current_offset` | committed offset per group |
 | `kafka_brokers` | number of brokers seen |
 
-If the exporter crash-loops with a protocol/version error after a Kafka upgrade, adjust `--kafka.version` in `compose.yml`.
+If the exporter crash-loops with a protocol/version error after a Kafka upgrade, adjust `--kafka.version` in [`values.yaml.gotmpl`](values.yaml.gotmpl).

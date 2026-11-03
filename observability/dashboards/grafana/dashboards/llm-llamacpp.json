@@ -849,8 +849,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "container_memory_working_set_bytes{name=\"llm\"}",
-          "legendFormat": "{{name}}",
+          "expr": "container_memory_working_set_bytes{namespace=\"homelab\", container=\"llm\"}",
+          "legendFormat": "{{container}}",
           "refId": "A"
         },
         {
@@ -858,8 +858,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "container_spec_memory_limit_bytes{name=\"llm\"}",
-          "legendFormat": "{{name}} limit",
+          "expr": "container_spec_memory_limit_bytes{namespace=\"homelab\", container=\"llm\"}",
+          "legendFormat": "{{container}} limit",
           "refId": "B"
         }
       ],
@@ -953,8 +953,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=\"llm\"}[$__rate_interval]))",
-          "legendFormat": "{{name}}",
+          "expr": "sum by (container) (rate(container_cpu_usage_seconds_total{namespace=\"homelab\", container=\"llm\"}[$__rate_interval]))",
+          "legendFormat": "{{container}}",
           "refId": "A"
         }
       ],

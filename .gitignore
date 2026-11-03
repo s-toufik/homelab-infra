@@ -10,8 +10,8 @@ secrets/
 # This server's Tailscale name and address (make local)
 environments/local.yaml
 
-# ---------- Data & backups (created by make backup / bind mounts) ----------
-backups/
+# ---------- Data (local dumps and bind mounts) ----------
+/backups/
 data/
 *.dump
 *.archive

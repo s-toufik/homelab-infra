@@ -192,6 +192,58 @@ consume: ## Read a topic from the beginning: make consume TOPIC=demo
 groups: ## Consumer groups with lag
 	@$(KAFKA)/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-groups
 
+##@ Observability
+
+# Fetches a URL from inside the cluster, through the caddy pod
+INSIDE := kubectl -n $(NS) exec deploy/caddy -c caddy -- wget -q -T 10 -O -
+
+.PHONY: targets
+targets: ## Prometheus scrape targets and their state
+	@$(INSIDE) http://prometheus:9090/api/v1/targets | \
+	  jq -r '.data.activeTargets[] | "  \(.health | (. + "      ")[:7]) \(.labels.job | (. + "                ")[:16]) \(.scrapeUrl)"'
+
+##@ LLM (llama-swap)
+
+# M = model name (see ai/llm/config.yml), Q = question, for llm-ask; MODELS for llm-download
+M ?= qwen3-8b
+MODELS ?=
+Q ?= What is Apache Kafka? Answer in two sentences.
+# ai/llm/test.py goes through the gateway with the LLM API key, read from its Secret
+LLM_TEST = LLM_GATEWAY_API_KEY="$$(kubectl -n $(NS) get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d)" \
+  python3 ai/llm/test.py
+DOMAIN = $$(awk '$$1 == "domain:" { print $$2 }' environments/local.yaml)
+
+.PHONY: llm-status llm-running llm-ask llm-models llm-download llm-down llm-up
+llm-status: ## Is the LLM up, and which models does it serve
+	@$(INSIDE) http://llm:8080/v1/models | jq -r '"  models:", (.data[] | "    - \(.id)")'
+llm-running: ## Which models are loaded right now (UP) and which aren't (DOWN)
+	@$(LLM_TEST) running "https://$(DOMAIN):8090"
+llm-ask: ## Ask a question: make llm-ask [M=<model>] [Q="..."]
+	@$(LLM_TEST) ask "https://$(DOMAIN):8090" "$(M)" "$(Q)"
+llm-models: ## The models ai/llm/config.yml defines
+	@./scripts/download_models.sh --list
+llm-download: ## Download models before their first use: make llm-download MODELS="qwen3-14b qwen3.5-2b" (or MODELS=--all)
+	@[ -n "$(MODELS)" ] || { echo 'Usage: make llm-download MODELS="<model> …" (or MODELS=--all; names: make llm-models)'; exit 1; }
+	@./scripts/download_models.sh $(MODELS)
+llm-down: ## Stop the LLM (frees its memory) until make llm-up
+	@kubectl -n $(NS) scale deploy/llm --replicas=0
+llm-up: ## Start the LLM again
+	@kubectl -n $(NS) scale deploy/llm --replicas=1
+
+##@ Backups (/var/backups/homelab, every night)
+
+FILE ?=
+
+.PHONY: backup backups restore-postgres restore-mongo
+backup: ## Back up PostgreSQL and MongoDB now
+	@./scripts/backups.sh now
+backups: ## List the backups
+	@./scripts/backups.sh list
+restore-postgres: ## Restore a database (REPLACES it): make restore-postgres FILE=/var/backups/homelab/postgres/<file>.dump
+	@./scripts/backups.sh restore-postgres "$(FILE)"
+restore-mongo: ## Restore MongoDB (REPLACES it): make restore-mongo FILE=/var/backups/homelab/mongodb/<file>.archive
+	@./scripts/backups.sh restore-mongo "$(FILE)"
+
 ##@ Danger zone
 
 .PHONY: destroy

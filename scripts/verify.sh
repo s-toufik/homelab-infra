@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Checks the running homelab after `make apply`, one section per release group (the groups of
-# helmfile.yaml.gotmpl, `make apply G=<group>`): platform, repository, message-broker, gateway,
-# ai, apps. Changes nothing (test rows are rolled back).
+# helmfile.yaml.gotmpl, `make apply G=<group>`): platform, repository, message-broker,
+# observability, gateway, ai, apps. Changes nothing (test rows are rolled back).
 source "$(dirname "$0")/_common.sh"
 require_cluster
 
 errors=0
 fail() { red "  ✗ $*"; errors=$((errors + 1)); }
 ok()   { green "  ✓ $*"; }
+note() { yellow "  ! $*"; }
 expect() { # description, condition... (the condition's own output is hidden)
   local description="$1"; shift
   if "$@" >/dev/null 2>&1; then ok "$description"; else fail "$description"; fi
@@ -25,6 +26,9 @@ equals() { [[ "$1" == "$2" ]]; }
 not() { ! "$@"; }
 # Fetches a URL from inside the cluster, through the caddy pod (busybox wget)
 inside() { k exec deploy/caddy -c caddy -- wget -q -T 5 -O - "$@" 2>/dev/null || true; }
+# Number of series a PromQL query returns
+series() { inside "http://prometheus:9090/api/v1/query?query=$(jq -rn --arg q "$1" '$q | @uri')" | jq -r '.data.result | length' 2>/dev/null || echo 0; }
+positive() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 > 0 )); }
 psql_homelab() { k exec -i "$(postgres_primary)" -c postgres -- psql -d homelab -X -q -tA -v ON_ERROR_STOP=1 "$@"; }
 # Exit 0 if the release's pod opens a TCP connection to host:port (Python in the agents' images,
 # Node in the MCP Inspector's)
@@ -92,10 +96,40 @@ expect "MongoDB answers" \
 # 8.x refuses to start on the server's kernel (SERVER-121912)
 mongo_image="$(k get statefulset mongodb -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
 expect "MongoDB runs 7.0 (${mongo_image:-no mongodb StatefulSet})" contains "$mongo_image" "mongo:7.0"
+for db in postgres mongodb; do
+  expect "the nightly $db backup is scheduled" k get cronjob "backups-$db"
+  last="$(k get cronjob "backups-$db" -o jsonpath='{.status.lastSuccessfulTime}' 2>/dev/null || true)"
+  if [[ -z "$last" ]]; then
+    note "no $db backup has run yet (make backup runs one now)"
+  else
+    age=$(( $(date +%s) - $(date -d "$last" +%s) ))
+    expect "the last $db backup is less than 26 hours old ($last)" test "$age" -lt 93600
+  fi
+done
 
 echo "==> message-broker: Kafka, Kafka UI"
 expect "Kafka answers" k exec kafka-0 -- /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092
 expect "Kafka UI is up" contains "$(inside http://kafka-ui:8080/actuator/health)" '"UP"'
+
+echo "==> observability: Prometheus, Loki, Tempo, OTel Collector, Alloy, Grafana"
+targets="$(inside http://prometheus:9090/api/v1/targets)"
+down="$(jq -r '[.data.activeTargets[] | select(.health != "up") | .labels.job] | unique | join(" ")' <<<"$targets" 2>/dev/null || echo "?")"
+expect "every Prometheus target is up${down:+ (down: $down)}" equals "$down" ""
+jobs="$(jq -r '[.data.activeTargets[].labels.job] | unique | join(" ")' <<<"$targets" 2>/dev/null || true)"
+for job in prometheus postgres postgrest loki tempo otel-collector alloy grafana kafka-exporter mongodb-exporter llama-cpp; do
+  expect "Prometheus scrapes $job" contains " $jobs " " $job "
+done
+expect "Alloy sends the server's metrics" positive "$(series node_memory_MemTotal_bytes)"
+expect "Alloy sends the server's network traffic (its own network, not a pod's)" \
+  positive "$(series 'node_network_receive_bytes_total{device=~"en.*|wl.*|eth.*"}')"
+expect "Alloy sends every container's metrics" \
+  positive "$(series 'container_memory_working_set_bytes{namespace="homelab", container="caddy"}')"
+logs="$(inside "http://loki:3100/loki/api/v1/query?query=$(jq -rn '"sum(count_over_time({namespace=\"homelab\"}[10m]))" | @uri')" |
+  jq -r '.data.result[0].value[1] // 0' 2>/dev/null || echo 0)"
+expect "Loki receives the pods' logs ($logs lines in 10 minutes)" positive "${logs%%.*}"
+expect "Tempo is ready" equals "$(inside http://tempo:3200/ready)" "ready"
+expect "the OTel Collector is up" contains "$(inside http://otel-collector:13133/)" "Server available"
+expect "Grafana is up" contains "$(inside http://grafana:3000/api/health)" '"database": "ok"'
 
 echo "==> gateway: Caddy, Keycloak, oauth2-proxy"
 expect "HTTPS answers with a trusted certificate ($site)" \
@@ -108,6 +142,22 @@ expect "every published port listens on the Tailscale address ${address} only${o
 expect "signed out, the APIs answer 401: health" equals "$(http_status "$site/api/health/caddy")" "401"
 expect "signed out, the APIs answer 401: Tasker" equals "$(http_status "$site/api/tasker/workflows")" "401"
 expect "signed out, the APIs answer 401: agent" equals "$(http_status "$site/api/agent/v1/models")" "401"
+for port in 9090 8080 12345 3100 3200 9308 6274; do
+  expect "port $port sends signed-out visitors to the sign-in page" \
+    contains "$(redirect_to "https://${domain}:${port}/")" "$site/oauth2/sign_in"
+done
+expect "Grafana answers over HTTPS" equals "$(http_status "https://${domain}:3000/api/health")" "200"
+expect "Grafana signs in with Keycloak" \
+  contains "$(redirect_to "https://${domain}:3000/login/generic_oauth")" "$signin/realms/homelab/protocol/openid-connect/auth"
+expect "the LLM playground sends signed-out visitors to the sign-in page" \
+  contains "$(redirect_to "https://${domain}:8090/ui")" "$site/oauth2/sign_in"
+expect "the LLM API refuses calls without the API key or a session (401)" \
+  equals "$(http_status "https://${domain}:8090/v1/models")" "401"
+# The key goes to curl on stdin, never on a command line
+llm_with_key="$(printf 'header = "Authorization: Bearer %s"\n' \
+  "$(k get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d)" |
+  curl -s -o /dev/null -w '%{http_code}' --max-time 10 -K - "https://${domain}:8090/v1/models" || true)"
+expect "the LLM API accepts the API key" equals "$llm_with_key" "200"
 expect "inside the cluster, the Tailscale name reaches the gateway (sign-in checks need it)" \
   k exec deploy/caddy -c caddy -- wget -q -T 5 -O /dev/null "$signin/realms/homelab/.well-known/openid-configuration"
 issuer="$(curl -fsS --max-time 10 "$signin/realms/homelab/.well-known/openid-configuration" 2>/dev/null |
@@ -123,7 +173,7 @@ expect "passwords need 12 characters and differ from the last 5" contains "$real
 expect "repeated wrong passwords lock the account" contains "$realm" "brute_force=true"
 expect "nobody can register an account from the web" contains "$realm" "registration=false"
 
-echo "==> ai: agent-runtime, agent-toolbox, MCP Inspector"
+echo "==> ai: LLM, agent-runtime, agent-toolbox, MCP Inspector"
 expect "agent-runtime answers on http://${domain}:8000" \
   equals "$(http_status "http://${domain}:8000/actuator/health")" "200"
 # The LLM provider agent-runtime is configured with (NVIDIA's API, or the local llm:8080)
@@ -142,6 +192,8 @@ expect "agent-toolbox can't reach Kafka" not can_reach agent-toolbox kafka 9092
 expect "agent-toolbox can't reach the server itself (its Kubernetes API)" not can_reach agent-toolbox 10.250.0.1 6443
 expect "the MCP Inspector reaches agent-toolbox" node_can_reach mcp-inspector agent-toolbox 8001
 expect "the MCP Inspector can't reach PostgreSQL" not node_can_reach mcp-inspector postgres-rw 5432
+expect "the LLM serves qwen3-8b (always on)" contains "$(inside http://llm:8080/v1/models)" '"qwen3-8b"'
+expect "llm-sd lists the loaded models for Prometheus" contains "$(inside http://llm-sd:8000/targets)" '"qwen3-8b"'
 
 echo "==> apps: homelab-ui"
 expect "homelab-ui answers behind the gateway" contains "$(inside http://homelab-ui:8080/)" "<app-root"

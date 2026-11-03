@@ -4,3 +4,13 @@ timezone: Europe/Paris
 # agent-runtime's LLM provider (OpenAI-compatible): NVIDIA's API, its key in Secret agent-runtime
 # (make secret-set SECRET=agent-runtime KEY=llm-api-key); or http://llm:8080/v1 for the local llama-swap
 llmBaseUrl: https://integrate.api.nvidia.com/v1
+
+# Prometheus keeps metrics this long, or until they take this much space
+prometheus:
+  retentionTime: 30d
+  retentionSize: 50GB
+
+# PostgreSQL and MongoDB dumps into /var/backups/homelab on the server
+backups:
+  schedule: "0 3 * * *"   # every night at 03:00, before the 04:00 security-update reboot
+  keepDays: 14

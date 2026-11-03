@@ -1,5 +1,5 @@
-// Grafana Alloy: host + container metrics, and Docker container logs.
-// App telemetry (OTLP) goes through otel-collector instead.
+// Grafana Alloy: the server's metrics, its containers' metrics and the pods' logs.
+// App telemetry (OTLP) goes through the OTel Collector instead.
 
 logging {
   level  = "warn"
@@ -7,15 +7,16 @@ logging {
 }
 
 // ---------------------------------------------------------------------------
-// Host metrics (node_exporter equivalent)
+// Server metrics (node_exporter equivalent): the server's /, /proc and /sys, mounted read-only.
+// Alloy uses the server's network, so network metrics are the server's.
 // ---------------------------------------------------------------------------
 prometheus.exporter.unix "host" {
-  rootfs_path = "/rootfs"
+  rootfs_path = "/host/root"
   procfs_path = "/host/proc"
   sysfs_path  = "/host/sys"
 
   filesystem {
-    mount_points_exclude = "^/(dev|proc|sys|run|var/lib/docker/.+)($|/)"
+    mount_points_exclude = "^/(dev|proc|sys|run|var/lib/kubelet/.+|var/lib/rancher/k3s/agent/containerd/.+)($|/)"
     fs_types_exclude     = "^(autofs|binfmt_misc|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|nsfs|overlay|proc|pstore|securityfs|sysfs|tmpfs|tracefs)$"
   }
 }
@@ -27,16 +28,35 @@ prometheus.scrape "host" {
 }
 
 // ---------------------------------------------------------------------------
-// Container metrics (cAdvisor equivalent)
+// Container metrics: the kubelet's cAdvisor, through the Kubernetes API
 // ---------------------------------------------------------------------------
-prometheus.exporter.cadvisor "containers" {
-  docker_host      = "unix:///var/run/docker.sock"
-  docker_only      = true
-  storage_duration = "5m"
+discovery.kubernetes "nodes" {
+  role = "node"
 }
 
-prometheus.scrape "containers" {
-  targets         = prometheus.exporter.cadvisor.containers.targets
+discovery.relabel "cadvisor" {
+  targets = discovery.kubernetes.nodes.targets
+
+  rule {
+    replacement  = "kubernetes.default.svc:443"
+    target_label = "__address__"
+  }
+
+  rule {
+    source_labels = ["__meta_kubernetes_node_name"]
+    regex         = "(.+)"
+    replacement   = "/api/v1/nodes/$1/proxy/metrics/cadvisor"
+    target_label  = "__metrics_path__"
+  }
+}
+
+prometheus.scrape "cadvisor" {
+  targets           = discovery.relabel.cadvisor.output
+  scheme            = "https"
+  bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+  tls_config {
+    ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+  }
   scrape_interval = "15s"
   forward_to      = [prometheus.relabel.instance.receiver]
 }
@@ -57,44 +77,56 @@ prometheus.remote_write "default" {
 }
 
 // ---------------------------------------------------------------------------
-// Docker container logs -> Loki
+// Pod logs (namespace homelab) -> Loki
 // ---------------------------------------------------------------------------
-discovery.docker "containers" {
-  host = "unix:///var/run/docker.sock"
+discovery.kubernetes "pods" {
+  role = "pod"
+  namespaces {
+    names = ["homelab"]
+  }
 }
 
-discovery.relabel "containers" {
-  targets = discovery.docker.containers.targets
+discovery.relabel "pods" {
+  targets = discovery.kubernetes.pods.targets
 
-  // Apps that ship logs via OTLP set this label: don't ingest their stdout twice
+  // Apps that send their logs over OTLP (annotation homelab.io/logs: otlp): not ingested twice
   rule {
-    source_labels = ["__meta_docker_container_label_homelab_logs_otlp"]
-    regex         = "true"
+    source_labels = ["__meta_kubernetes_pod_annotation_homelab_io_logs"]
+    regex         = "otlp"
     action        = "drop"
   }
 
   rule {
-    source_labels = ["__meta_docker_container_name"]
-    regex         = "/(.*)"
-    target_label  = "container"
+    source_labels = ["__meta_kubernetes_namespace"]
+    target_label  = "namespace"
   }
 
   rule {
-    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    source_labels = ["__meta_kubernetes_pod_name"]
+    target_label  = "pod"
+  }
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_name"]
+    target_label  = "container"
+  }
+
+  // service_name: the release (app.kubernetes.io/name), or postgres for the operator's pods
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
     target_label  = "service_name"
   }
 
   rule {
-    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
-    target_label  = "compose_project"
+    source_labels = ["__meta_kubernetes_pod_label_cnpg_io_cluster"]
+    regex         = "(.+)"
+    target_label  = "service_name"
   }
 }
 
-loki.source.docker "containers" {
-  host          = "unix:///var/run/docker.sock"
-  targets       = discovery.docker.containers.targets
-  relabel_rules = discovery.relabel.containers.rules
-  forward_to    = [loki.write.default.receiver]
+loki.source.kubernetes "pods" {
+  targets    = discovery.relabel.pods.output
+  forward_to = [loki.write.default.receiver]
 }
 
 loki.write "default" {

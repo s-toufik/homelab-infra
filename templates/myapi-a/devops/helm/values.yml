@@ -1,0 +1,44 @@
+# How myapi-a runs on the homelab: values for kube-charts' `app` chart, every key described in
+# its charts/app/values.yaml. CI builds the chart from this file on a release tag vX.Y.Z.
+
+ports:
+  - name: http
+    port: 8000
+
+env:
+  OTEL_SERVICE_NAME: myapi-a
+  OTEL_RESOURCE_ATTRIBUTES: service.namespace=homelab,deployment.environment=homelab
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_METRICS_EXPORTER: otlp
+  OTEL_LOGS_EXPORTER: otlp
+  OTEL_METRIC_EXPORT_INTERVAL: "15000"
+  OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
+  OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: health
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+# Secrets it reads, created on the server (homelab-infra's scripts/secrets.sh)
+# secretEnv:
+#   API_TOKEN: { secret: myapi-a, key: api-token }
+
+probes:
+  readiness:
+    httpGet: { path: /health, port: http }
+  liveness:
+    httpGet: { path: /health, port: http }
+    periodSeconds: 20
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { memory: 512Mi }
+
+# Its logs go to the OTel Collector over OTLP, so they aren't collected a second time from stdout
+podAnnotations:
+  homelab.io/logs: otlp
+
+# The image's app user
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000

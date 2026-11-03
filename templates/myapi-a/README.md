@@ -1,18 +1,25 @@
 # myapi-a
 
-> Kept for documentation only — not part of the running stack. Disabled by default (commented out of the `include:` list in the root `compose.yml`).
+> A template, not part of the running homelab: copy it to start a new API.
 
-This is a minimal FastAPI service, packaged and containerized the same way the real Python APIs in this stack are (`agent-toolbox`, `agent-runtime`): a `pyproject.toml` + `src/` layout built with `uv`, and a multi-stage Dockerfile that `uv sync --no-dev --no-editable`s into a builder stage, then copies just the resulting `.venv` into a slim, non-root runtime image. It's kept here as a reference for that template, and to show how an app plugs into the observability stack — auto-instrumented with `opentelemetry-instrument`, sending **traces, metrics and logs** over OTLP/HTTP to `otel-collector:4318`.
+A minimal FastAPI service, packaged and released the same way as the real Python APIs of the homelab (`agent-toolbox`, `agent-runtime`): a `pyproject.toml` + `src/` layout built with `uv`, a multi-stage Dockerfile that copies only the resulting `.venv` into a slim, non-root image, and a `devops/helm/values.yml` that says how it runs on the server. It is auto-instrumented with `opentelemetry-instrument`: **traces, metrics and logs** go over OTLP/HTTP to `otel-collector:4318`.
 
 | Endpoint | Behaviour |
 |----------|-----------|
-| `GET /health` | liveness (excluded from tracing) |
+| `GET /health` | readiness and liveness (excluded from tracing) |
 | `GET /work`   | sleeps 10–300 ms, fails 5% of the time, custom span + counter |
 
-URL (if enabled): http://<server>:8001/docs
+```text
+myapi-a/
+├── pyproject.toml, uv.lock, src/    the app
+└── devops/
+    ├── docker/Dockerfile            the image CI builds
+    └── helm/values.yml              how it runs: port, env, Secrets, probes, resources
+```
 
-## Using this as a template for a real app
+## A new app from this template
 
-1. Copy `pyproject.toml`, `Dockerfile`, and the `src/` layout as a starting point.
-2. Replace `src/myapi_a/` with your own package; update `[tool.setuptools.packages.find]` if the name changes, and the Dockerfile's final `CMD` to point at your app.
-3. Keep the `OTEL_*` environment variables from `compose.yml`: that's all the wiring this stack needs. For a real Python API here, that means either the generic `opentelemetry-instrument` auto-instrumentation approach used here, or a project's own telemetry adapter (see `agent-toolbox`/`agent-runtime`, which configure `OTEL_HOST`/`OTEL_PORT` for pycraftcore's own OTel provider instead).
+1. Copy this folder into a new repository; rename the package in `src/` and `pyproject.toml`, and the `CMD` of `devops/docker/Dockerfile`.
+2. In `devops/helm/values.yml`: its port, env variables, the Secrets it reads, its probes.
+3. Copy the CI of agent-toolbox (`.github/workflows/cicd.yml`) and change the image name and the `chart` job's `name` and `image`.
+4. Release it and add it to homelab-infra's release train: homelab-infra's DevOps guide, **Add an app**.

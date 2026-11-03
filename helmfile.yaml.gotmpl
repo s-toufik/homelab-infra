@@ -1,7 +1,8 @@
 # The release train: every release on the server, its chart and its version.
 #   helmfile apply                     everything (only what changed is upgraded)
 #   helmfile -l name=homelab-ui apply  one release
-#   helmfile -l group=gateway apply    one group (platform, repository, message-broker, gateway, ai, apps)
+#   helmfile -l group=gateway apply    one group (platform, repository, message-broker, observability,
+#                                      gateway, ai, apps)
 # Versions live in environments/versions.yaml; the server's name and address in
 # environments/local.yaml (git-ignored, `make local`). Before a release that uses Secrets is
 # deployed, `scripts/secrets.sh check` makes sure they exist.
@@ -95,6 +96,19 @@ releases:
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, mongodb] }
 
+  # Every night: PostgreSQL and MongoDB dumps into the server's /var/backups/homelab (cron jobs)
+  - name: backups
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: repository }
+    needs: [homelab/postgres, homelab/mongodb]
+    values:
+      - environments/global.yaml.gotmpl
+      - repository/backups/values.yaml.gotmpl
+    hooks:
+      - { events: [presync], showlogs: true, command: bash, args: [-c, '[ -d /var/backups/homelab ] || { echo "Missing /var/backups/homelab: sudo install -d -m 0700 /var/backups/homelab"; exit 1; }'] }
+
   # ---------- message-broker: event streaming ----------
   - name: kafka
     namespace: homelab
@@ -114,6 +128,89 @@ releases:
     values:
       - environments/global.yaml.gotmpl
       - message_broker/kafka-ui/values.yaml.gotmpl
+
+  # ---------- observability: metrics, logs, traces, their collectors and dashboards ----------
+
+  - name: prometheus
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: observability }
+    values:
+      - environments/global.yaml.gotmpl
+      - observability/metrics/prometheus/values.yaml.gotmpl
+
+  - name: loki
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: observability }
+    values:
+      - environments/global.yaml.gotmpl
+      - observability/logs/loki/values.yaml.gotmpl
+
+  - name: tempo
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: observability }
+    values:
+      - environments/global.yaml.gotmpl
+      - observability/traces/tempo/values.yaml.gotmpl
+
+  - name: otel-collector
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: observability }
+    needs: [homelab/prometheus, homelab/loki, homelab/tempo]
+    values:
+      - environments/global.yaml.gotmpl
+      - observability/collectors/otel-collector/values.yaml.gotmpl
+
+  - name: alloy
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: observability }
+    needs: [homelab/prometheus, homelab/loki]
+    values:
+      - environments/global.yaml.gotmpl
+      - observability/collectors/alloy/values.yaml.gotmpl
+
+  - name: kafka-exporter
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: observability }
+    needs: [homelab/kafka]
+    values:
+      - environments/global.yaml.gotmpl
+      - observability/metrics/kafka-exporter/values.yaml.gotmpl
+
+  - name: mongodb-exporter
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: observability }
+    needs: [homelab/mongodb]
+    values:
+      - environments/global.yaml.gotmpl
+      - observability/metrics/mongodb-exporter/values.yaml.gotmpl
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, mongodb] }
+
+  - name: grafana
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: observability }
+    needs: [homelab/prometheus, homelab/loki, homelab/tempo, homelab/keycloak]
+    values:
+      - environments/global.yaml.gotmpl
+      - observability/dashboards/grafana/values.yaml.gotmpl
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, grafana-admin, grafana-oidc] }
 
   # ---------- gateway: HTTPS and one sign-in for every web interface ----------
   - name: caddy
@@ -151,7 +248,27 @@ releases:
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, oauth2-proxy] }
 
-  # ---------- ai: the homelab agent and its tools ----------
+  # ---------- ai: local models, the homelab agent and its tools ----------
+  - name: llm
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: ai }
+    # The first start downloads qwen3-8b (several GB) before the pod is ready
+    timeout: 3600
+    values:
+      - environments/global.yaml.gotmpl
+      - ai/llm/values.yaml.gotmpl
+
+  - name: llm-sd
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: ai }
+    values:
+      - environments/global.yaml.gotmpl
+      - ai/llm/llm-sd.values.yaml.gotmpl
+
   # Released by their own repositories (chart = app + their devops/helm/values.yml)
   - name: agent-toolbox
     namespace: homelab

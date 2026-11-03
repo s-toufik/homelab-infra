@@ -118,9 +118,7 @@
 			import health_route postgrest postgrest:3002 /ready
 			import health_route kafka-ui kafka-ui:8080 /actuator/health
 			import health_route prometheus prometheus:9090 /-/ready
-			import health_route cadvisor cadvisor:8080 /healthz
 			import health_route kafka-exporter kafka-exporter:9308 /metrics
-			import health_route postgres-exporter postgres-exporter:9187 /metrics
 			import health_route mongodb-exporter mongodb-exporter:9216 /metrics
 			import health_route loki loki:3100 /ready
 			import health_route tempo tempo:3200 /ready
@@ -128,6 +126,7 @@
 			import health_route alloy alloy:12345 /-/ready
 			import health_route grafana grafana:3000 /api/health
 			import health_route llm llm:8080 /health
+			import health_route llm-sd llm-sd:8000 /targets
 			import health_route agent-runtime agent-runtime:8000 /actuator/health/readiness
 			# agent-toolbox and the MCP Inspector only answer requests addressed to their own host name
 			handle /api/health/agent-toolbox {

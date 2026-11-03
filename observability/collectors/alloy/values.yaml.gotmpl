@@ -1,0 +1,76 @@
+# Grafana Alloy: the server's metrics (CPU, memory, disks, network, temperatures), every
+# container's metrics (the kubelet's cAdvisor) and the pods' logs (./config.alloy). Its UI is
+# served by the gateway on :12345 (signed in).
+image:
+  repository: grafana/alloy
+  tag: {{ .Values.images.alloy | quote }}
+
+args:
+  - run
+  # The server's node address only (it uses the server's network): never the home network
+  - --server.http.listen-addr=10.250.0.1:12345
+  - --storage.path=/var/lib/alloy/data
+  - /etc/alloy/config.alloy
+
+# The server's network, so its network metrics are the server's, not a pod's
+hostNetwork: true
+
+ports:
+  - { name: http, port: 12345 }
+
+probes:
+  readiness:
+    httpGet: { path: /-/ready, port: http }
+    periodSeconds: 15
+  liveness:
+    httpGet: { path: /-/healthy, port: http }
+    periodSeconds: 30
+    failureThreshold: 5
+
+metrics:
+  port: 12345
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { memory: 768Mi }
+
+persistence:
+  data:
+    mountPath: /var/lib/alloy/data
+    size: 1Gi
+
+configFiles:
+  config:
+    mountPath: /etc/alloy
+    files:
+      config.alloy: |
+        {{- readFile "config.alloy" | nindent 8 }}
+
+# Reads the server's files, never writes them
+extraVolumes:
+  - { name: host-root, hostPath: { path: / } }
+  - { name: host-proc, hostPath: { path: /proc } }
+  - { name: host-sys, hostPath: { path: /sys } }
+  - { name: tmp, emptyDir: {} }
+extraVolumeMounts:
+  - { name: host-root, mountPath: /host/root, readOnly: true }
+  - { name: host-proc, mountPath: /host/proc, readOnly: true }
+  - { name: host-sys, mountPath: /host/sys, readOnly: true }
+  - { name: tmp, mountPath: /tmp }
+
+# Container metrics through the Kubernetes API (the node's cAdvisor), and the pods' logs
+rbac:
+  rules:
+    - apiGroups: [""]
+      resources: [pods, pods/log]
+      verbs: [get, list, watch]
+  clusterRules:
+    - apiGroups: [""]
+      resources: [nodes]
+      verbs: [get, list, watch]
+    - apiGroups: [""]
+      resources: [nodes/proxy, nodes/metrics]
+      verbs: [get]
+
+securityContext:
+  readOnlyRootFilesystem: true

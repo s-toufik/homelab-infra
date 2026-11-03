@@ -1,0 +1,47 @@
+# LLM: llama-swap, several llama.cpp models behind one OpenAI-compatible API (./config.yml). Pods
+# use http://llm:8080/v1; the tailnet's devices https://<domain>:8090/v1 through the gateway (API
+# key or sign-in). Models download into its volume the first time they are used.
+image:
+  repository: ghcr.io/mostlygeek/llama-swap
+  tag: {{ .Values.images.llamaSwap | quote }}
+
+args: [-config, /config/config.yml, -listen, ":8080"]
+
+env:
+  LLAMA_CACHE: /models
+
+ports:
+  - { name: http, port: 8080 }
+
+probes:
+  # The first start downloads and loads qwen3-8b (several GB)
+  startup:
+    httpGet: { path: /health, port: http }
+    periodSeconds: 10
+    failureThreshold: 360
+  readiness:
+    httpGet: { path: /health, port: http }
+    periodSeconds: 15
+  liveness:
+    httpGet: { path: /health, port: http }
+    periodSeconds: 30
+    failureThreshold: 5
+
+# Must hold qwen3-8b (always on) plus the largest on-demand model at once
+resources:
+  requests: { cpu: "1", memory: 8Gi }
+  limits: { memory: 26Gi }
+
+persistence:
+  models:
+    mountPath: /models
+    size: 100Gi
+
+configFiles:
+  config:
+    mountPath: /config
+    files:
+      config.yml: |
+        {{- readFile "config.yml" | nindent 8 }}
+
+terminationGracePeriodSeconds: 60

@@ -6,7 +6,7 @@
   python3 ai/llm/test.py running <base_url>
 
 Through the gateway (https://<HOMELAB_DOMAIN>:8090), set LLM_GATEWAY_API_KEY: it is sent as a
-Bearer token. The Makefile targets load it from .env.
+Bearer token. The Makefile targets read it from the Kubernetes Secret llm-gateway.
 """
 import json
 import os

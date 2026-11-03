@@ -28,8 +28,11 @@ Scenarios, as steps. Each `make` command is followed by the raw command it runs.
 [Secrets](#secrets) ·
 [Database shells](#database-shells) ·
 [Database migrations](#database-migrations) ·
+[Backups and restores](#backups-and-restores) ·
+[Observability](#observability) ·
 [LLM and agent](#llm-and-agent) ·
 [Kafka](#kafka) ·
+[Add an app](#add-an-app) ·
 [Troubleshooting](#troubleshooting) ·
 [Reset the homelab](#reset-the-homelab) ·
 [Every make command](#every-make-command)
@@ -239,6 +242,7 @@ sysctl fs.inotify.max_user_instances fs.inotify.max_user_watches    # 1024, 5242
        iifname { "lo", "tailscale0", "k3s0", "cni0", "flannel.1" } accept
        tcp dport { 6443, 10250 } drop
        udp dport 8472 drop
+       ip daddr 10.250.0.1 drop
      }
    }
    EOF
@@ -260,6 +264,11 @@ sysctl fs.inotify.max_user_instances fs.inotify.max_user_watches    # 1024, 5242
    ```
 2. Check: `sudo nft list table inet homelab_lan_guard` prints the rules.
 3. Never `systemctl enable nftables`: its config flushes the k3s and Tailscale rules.
+4. On a server set up before the `ip daddr 10.250.0.1 drop` line existed: add it under `udp dport 8472 drop` in `/etc/homelab/k3s-lan-guard.nft` (`sudo nano`), then
+   ```bash
+   sudo systemctl restart k3s-lan-guard
+   sudo nft list table inet homelab_lan_guard    # shows ip daddr 10.250.0.1 drop
+   ```
 
 ### 5. Let your account run kubectl and helm
 
@@ -694,7 +703,6 @@ Every 2 hours; results in Grafana's **Server Health** dashboard (Download & Uplo
    ```bash
    sudo internet-speedtest      # Sent to Grafana: <time>,<down>,<up>,<ping>,<jitter>,<loss>
    ```
-   Until the OTel Collector runs, it prints `Stack not reachable, saved to /var/log/internet-speedtest.csv only`.
 4. Run it every 2 hours:
    ```bash
    sudo tee /etc/systemd/system/internet-speedtest.service >/dev/null <<'EOF'
@@ -747,6 +755,7 @@ Every 2 hours; results in Grafana's **Server Health** dashboard (Download & Uplo
 
 - [ ] `sudo reboot`, don't log in, close the lid. After 5 minutes, from a phone on mobile data with Tailscale: `ssh <user>@<tailscale-ip>` works.
 - [ ] `systemctl is-active tailscaled k3s k3s-lan-guard` → `active` three times; `kubectl get nodes` → `Ready`.
+- [ ] Grafana's **Server Health** dashboard shows temperatures.
 - [ ] Unplug the Ethernet cable for 1 minute: still reachable, `kubectl get nodes` → `Ready`. Plug it back: `ip route show default` uses Ethernet.
 - [ ] `sudo systemctl stop tailscaled`, wait 5 minutes: `journalctl -t tailscale-watchdog` shows "Restarting tailscaled", `tailscale status` works.
 - [ ] `echo c | sudo tee /proc/sysrq-trigger`: the laptop reboots by itself within a minute, Tailscale is back, `kubectl get nodes` → `Ready`.
@@ -842,22 +851,26 @@ Once. Charts and images must be public, so the server pulls them without a login
 4. Type the LLM provider's API key (NVIDIA's `nvapi-…`; any text if `llmBaseUrl` in `environments/default.yaml` is the local `http://llm:8080/v1`):
    - `make secret-set SECRET=agent-runtime KEY=llm-api-key`
    - raw: `./scripts/secrets.sh set agent-runtime llm-api-key`
-5. Check:
+5. Create the backups folder (root only):
+   ```bash
+   sudo install -d -m 0700 /var/backups/homelab
+   ```
+6. Check:
    - `make validate`
    - raw: `./scripts/validate.sh`
-6. Deploy everything (the first time ~10 minutes: images download, PostgreSQL starts):
+7. Deploy everything (the first time ~10 minutes: images download, PostgreSQL starts):
    - `make apply`
    - raw: `helmfile apply`
-7. Create your account (email, names, password twice):
+8. Create your account (email, names, password twice):
    - `make user-add ACCOUNT=<name>`
    - raw: `./scripts/users.sh add <name>`
-8. Make it admin:
+9. Make it admin:
    - `make user-admin ACCOUNT=<name>`
    - raw: `./scripts/users.sh admin <name>`
-9. Verify, every line ✓:
+10. Verify, every line ✓:
    - `make verify`
    - raw: `./scripts/verify.sh`
-10. Open `https://<HOMELAB_DOMAIN>/` on a Tailscale device and sign in.
+11. Open `https://<HOMELAB_DOMAIN>/` on a Tailscale device and sign in.
 
 ## Deploy
 
@@ -868,7 +881,7 @@ Once. Charts and images must be public, so the server pulls them without a login
 **Apply it**
 - everything (the release train): `make apply` — raw: `helmfile apply`
 - one release: `make apply R=<release>` — raw: `helmfile -l name=<release> apply`
-- one group (`platform`, `repository`, `message-broker`, `gateway`, `ai`, `apps`): `make apply G=<group>` — raw: `helmfile -l group=<group> apply`
+- one group (`platform`, `repository`, `message-broker`, `observability`, `gateway`, `ai`, `apps`): `make apply G=<group>` — raw: `helmfile -l group=<group> apply`
 
 **Re-run a release's deploy jobs without a change** (e.g. Keycloak's realm sync)
 - `make sync R=<release>`
@@ -978,10 +991,11 @@ Apps get the new `app` chart with their next release (their CI builds on the lat
 - `make user-unlock ACCOUNT=<name>` — raw: `./scripts/users.sh unlock <name>`
 
 **Remove an account**
-1. `make user-remove ACCOUNT=<name>` — raw: `./scripts/users.sh remove <name>`
-2. Type the account name to confirm.
-3. Answer whether to delete its Tasker workflows and favorites.
-4. `make sessions-revoke` to end its open sessions now.
+1. `make backup` (to keep its Tasker data restorable).
+2. `make user-remove ACCOUNT=<name>` — raw: `./scripts/users.sh remove <name>`
+3. Type the account name to confirm.
+4. Answer whether to delete its Tasker workflows and favorites.
+5. `make sessions-revoke` to end its open sessions now.
 
 **Sign everyone out now**
 - `make sessions-revoke`
@@ -1046,6 +1060,58 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 1. `make migrate-rollback`, type `rollback` — raw: `./scripts/dbmate.sh rollback`
 2. Delete or fix the file, commit, push (otherwise the next deploy applies it again).
 
+## Backups and restores
+
+Every night at 03:00 (`backups` in `environments/default.yaml`): PostgreSQL (databases `homelab` and `keycloak`) and MongoDB into `/var/backups/homelab`, kept 14 days.
+
+**List them**
+- `make backups` — raw: `./scripts/backups.sh list`
+
+**Back up now** (e.g. before an upgrade)
+- `make backup` — raw: `./scripts/backups.sh now`
+
+**Copy them off the server** (on your Mac)
+```bash
+ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homelab-backups-$(date +%F).tar.gz
+```
+
+**Restore PostgreSQL** (replaces the database)
+1. `make backups` → the file, e.g. `/var/backups/homelab/postgres/homelab_2026-11-03_0300.dump` (or `keycloak_…`).
+2. `make restore-postgres FILE=<file>`, type `restore` — raw: `./scripts/backups.sh restore-postgres <file>`
+3. For `keycloak_…`: `kubectl -n homelab rollout restart deploy/keycloak`.
+
+**Restore MongoDB** (replaces its data)
+1. `make backups` → the file, e.g. `/var/backups/homelab/mongodb/mongodb_2026-11-03_0300.archive`.
+2. `make restore-mongo FILE=<file>`, type `restore` — raw: `./scripts/backups.sh restore-mongo <file>`
+
+**Change the schedule or how long they are kept**
+1. `backups.schedule` / `backups.keepDays` in `environments/default.yaml`.
+2. `make apply R=backups`
+
+## Observability
+
+**Dashboards**
+- `https://<HOMELAB_DOMAIN>:3000` → **Dashboards → Homelab**: Homelab Overview, Server Health, LLM (llama.cpp).
+
+**Search the logs**
+- Grafana → **Explore** → Loki → `{namespace="homelab", service_name="<release>"}`.
+
+**See what Prometheus scrapes**
+- `make targets` — raw: `kubectl -n homelab exec deploy/caddy -c caddy -- wget -q -O - http://prometheus:9090/api/v1/targets`
+- or `https://<HOMELAB_DOMAIN>:9090/targets`
+
+**Scrape a new service**
+- In its values: `metrics: { port: <port>, path: /metrics }`, then `make apply R=<release>`; Prometheus finds it within a minute.
+
+**Change a dashboard**
+1. Edit it in Grafana, **Save**; **Export → Export as JSON**.
+2. Replace the file in `observability/dashboards/grafana/dashboards/`, commit, push.
+3. On the server: `git pull`, `make apply R=grafana`.
+
+**Change how long metrics are kept**
+1. `prometheus.retentionTime` / `retentionSize` in `environments/default.yaml`.
+2. `make apply R=prometheus`
+
 ## LLM and agent
 
 **Chat**
@@ -1066,6 +1132,16 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 2. Its API key: `make secret-set SECRET=agent-runtime KEY=llm-api-key`
 3. `make apply R=agent-runtime`
 
+**The local LLM**
+- Up, and its models: `make llm-status` — raw: `kubectl -n homelab exec deploy/caddy -c caddy -- wget -q -O - http://llm:8080/v1/models`
+- Loaded right now: `make llm-running` — raw: `LLM_GATEWAY_API_KEY=… python3 ai/llm/test.py running https://<HOMELAB_DOMAIN>:8090`
+- Ask: `make llm-ask [M=<model>] [Q="…"]` — raw: `LLM_GATEWAY_API_KEY=… python3 ai/llm/test.py ask https://<HOMELAB_DOMAIN>:8090 <model> "<question>"`
+- Model names: `make llm-models` — raw: `./scripts/download_models.sh --list`
+- Download before first use: `make llm-download MODELS="<model> …"` (or `MODELS=--all`) — raw: `./scripts/download_models.sh <model> …`
+- Stop it (frees its memory): `make llm-down` — raw: `kubectl -n homelab scale deploy/llm --replicas=0`; start it: `make llm-up` — raw: `kubectl -n homelab scale deploy/llm --replicas=1`
+- Change a model: `ai/llm/config.yml`, then `make apply R=llm`.
+- The API key for scripts: `kubectl -n homelab get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d; echo`
+
 **Update the MCP Inspector**
 1. `images.mcpInspector` in `environments/versions.yaml` ([its releases](https://github.com/modelcontextprotocol/inspector/releases)).
 2. `make apply R=mcp-inspector`
@@ -1079,6 +1155,33 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 - Consumer groups and lag: `make groups` — raw: `kubectl -n homelab exec -it kafka-0 -- /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-groups`
 - In the browser: `https://<HOMELAB_DOMAIN>:8080` (Kafka UI, signed in).
 - From a tailnet device: bootstrap server `<HOMELAB_DOMAIN>:9094`.
+
+## Add an app
+
+**In a new repository** (start from `templates/myapi-a`)
+1. `devops/docker/Dockerfile` and `devops/helm/values.yml` (port, env, the Secrets it reads, probes, resources).
+2. `.github/workflows/cicd.yml`: copy agent-toolbox's, change the image name and the `chart` job's `name` and `image`.
+3. GitHub: [Set up GitHub](#set-up-github) → **Each app repository** (environment rule, tag `v1.0.0`, package public).
+
+**In homelab-infra**
+4. If it reads Secrets: add them to `SPECS` in `scripts/secrets.sh`.
+5. In `environments/versions.yaml`, under `apps`: `<appName>: 1.0.0`.
+6. In `helmfile.yaml.gotmpl`, a release in its group:
+   ```yaml
+     - name: <app>
+       namespace: homelab
+       chart: homelab/<app>
+       version: {{ .Values.apps.<appName> }}
+       labels: { group: apps }
+       values:
+         - environments/global.yaml.gotmpl
+   ```
+7. A web page behind the sign-in: a route in `gateway/caddy/Caddyfile` ([gateway/caddy/README.md](gateway/caddy/README.md), Adding a route or a tool).
+8. Commit, push.
+
+**On the server**
+9. `git pull`, `make secrets` (if it reads Secrets), `make validate`, `make apply R=<app>`.
+10. `make status` → `Running`; `make logs R=<app>`.
 
 ## Troubleshooting
 
@@ -1129,6 +1232,15 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 2. Expected: agent-toolbox ← agent-runtime, MCP Inspector, Caddy, tailnet devices; agent-toolbox → DNS, OTel Collector, internet. MCP Inspector ← Caddy; → DNS, agent-toolbox, internet.
 3. A new caller or target: add it in `ai/<release>/values.yaml.gotmpl`, then `make apply R=<release>`.
 
+**A Prometheus target is down** (`make verify`, `make targets`)
+1. `make logs R=<release>` and `make status`.
+2. The pod's `prometheus.io/port` must be the port its metrics are on: its values' `metrics:`.
+
+**A backup fails, or none has run**
+1. `kubectl -n homelab get cronjob,job | grep backups`
+2. `kubectl -n homelab logs job/<the failed backups job>`
+3. `make validate` → `/var/backups/homelab exists`.
+
 **The `db-migrate` job fails**
 1. `kubectl -n homelab logs job/db-migrate-migrate`
 2. Fix the migration file, then `make migrate`.
@@ -1143,12 +1255,13 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 
 ## Reset the homelab
 
-Deletes all data: databases, accounts, Secrets, volumes. The operators (`cnpg`, `reloader`) stay.
+Deletes all data: databases, accounts, Secrets, volumes. The operators (`cnpg`, `reloader`) and the backups in `/var/backups/homelab` stay.
 
-1. `kubectl delete namespace homelab` (waits until everything in it is gone)
-2. `kubectl -n kube-system delete configmap coredns-custom`
-3. `kubectl get pv` → nothing left from `homelab`.
-4. Follow [First deploy](#first-deploy) from step 3.
+1. `make backup` (if anything is worth keeping)
+2. `kubectl delete namespace homelab` (waits until everything in it is gone)
+3. `kubectl -n kube-system delete configmap coredns-custom`
+4. `kubectl get pv` → nothing left from `homelab`.
+5. Follow [First deploy](#first-deploy) from step 3.
 
 ## Every make command
 
@@ -1191,4 +1304,10 @@ Deletes all data: databases, accounts, Secrets, volumes. The operators (`cnpg`, 
 | `make migrate-status` | `./scripts/dbmate.sh status` |
 | `make migrate-rollback` | `./scripts/dbmate.sh rollback` |
 | `make topics` · `topic-create` · `topic-describe` · `consume` · `groups` | see [Kafka](#kafka) |
+| `make targets` | `kubectl -n homelab exec deploy/caddy -c caddy -- wget -q -O - http://prometheus:9090/api/v1/targets` |
+| `make llm-status` · `llm-running` · `llm-ask` · `llm-models` · `llm-download` · `llm-down` · `llm-up` | see [LLM and agent](#llm-and-agent) |
+| `make backup` | `./scripts/backups.sh now` |
+| `make backups` | `./scripts/backups.sh list` |
+| `make restore-postgres FILE=…` | `./scripts/backups.sh restore-postgres <file>` |
+| `make restore-mongo FILE=…` | `./scripts/backups.sh restore-mongo <file>` |
 | `make destroy` | `helmfile destroy` |

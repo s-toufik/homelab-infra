@@ -1,0 +1,39 @@
+# mongodb-exporter: MongoDB's metrics, for Prometheus (and the Status page's MongoDB check).
+image:
+  repository: percona/mongodb_exporter
+  tag: {{ .Values.images.mongodbExporter | quote }}
+
+env:
+  MONGODB_URI: mongodb://$(MONGO_USER):$(MONGO_PASSWORD)@mongodb:27017/admin
+secretEnv:
+  MONGO_USER: { secret: mongodb, key: username }
+  MONGO_PASSWORD: { secret: mongodb, key: password }
+
+args:
+  - --collector.diagnosticdata
+  - --log.level=warn
+
+ports:
+  - { name: metrics, port: 9216 }
+
+probes:
+  readiness:
+    httpGet: { path: /, port: metrics }
+    periodSeconds: 15
+  liveness:
+    httpGet: { path: /, port: metrics }
+    periodSeconds: 30
+    failureThreshold: 5
+
+metrics:
+  port: 9216
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 64Mi }
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+securityContext:
+  readOnlyRootFilesystem: true

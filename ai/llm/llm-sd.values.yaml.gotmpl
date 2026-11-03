@@ -1,0 +1,43 @@
+# llm-sd: tells Prometheus which models are loaded right now (./llm-sd.py), so it scrapes their
+# metrics without loading the others.
+image:
+  repository: python
+  tag: {{ .Values.images.python | quote }}
+
+command: [python3, /app/llm-sd.py]
+
+env:
+  LLM_HOST: llm:8080
+  POLL_INTERVAL: "15"
+  PORT: "8000"
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+ports:
+  - { name: http, port: 8000 }
+
+probes:
+  readiness:
+    httpGet: { path: /targets, port: http }
+    periodSeconds: 15
+  liveness:
+    httpGet: { path: /targets, port: http }
+    periodSeconds: 30
+    failureThreshold: 5
+
+resources:
+  requests: { cpu: 5m, memory: 16Mi }
+  limits: { memory: 64Mi }
+
+configFiles:
+  app:
+    mountPath: /app
+    files:
+      llm-sd.py: |
+        {{- readFile "llm-sd.py" | nindent 8 }}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+securityContext:
+  readOnlyRootFilesystem: true

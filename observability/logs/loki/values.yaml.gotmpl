@@ -1,0 +1,53 @@
+# Loki: logs, 30 days (./config.yml). Alloy pushes the pods' logs, the OTel Collector the apps'
+# OTLP logs. Read through Grafana; its API is served by the gateway on :3100 (signed in).
+kind: StatefulSet
+
+image:
+  repository: grafana/loki
+  tag: {{ .Values.images.loki | quote }}
+
+args: [-config.file=/etc/loki/config.yml]
+
+ports:
+  - { name: http, port: 3100 }
+  - { name: grpc, port: 9096 }
+
+probes:
+  startup:
+    httpGet: { path: /ready, port: http }
+    periodSeconds: 5
+    failureThreshold: 60
+  readiness:
+    httpGet: { path: /ready, port: http }
+    periodSeconds: 15
+  liveness:
+    httpGet: { path: /ready, port: http }
+    periodSeconds: 30
+    failureThreshold: 5
+
+metrics:
+  port: 3100
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { memory: 3Gi }
+
+persistence:
+  data:
+    mountPath: /loki
+    size: 50Gi
+
+configFiles:
+  config:
+    mountPath: /etc/loki
+    files:
+      config.yml: |
+        {{- readFile "config.yml" | nindent 8 }}
+
+# The image's loki user
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+securityContext:
+  readOnlyRootFilesystem: true

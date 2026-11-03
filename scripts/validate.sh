@@ -37,6 +37,13 @@ if [[ "$address" == "$actual_address" ]]; then ok "tailscaleIP $address is this 
 else fail "tailscaleIP '$address' is not this machine's Tailscale address '$actual_address' (run: make local)"; fi
 if [[ -S /run/tailscale/tailscaled.sock ]]; then ok "Tailscale's socket is there (Caddy gets its certificate from it)"
 else fail "/run/tailscale/tailscaled.sock not found: Tailscale must run on this machine"; fi
+if grep -q 'ip daddr 10.250.0.1 drop' /etc/homelab/k3s-lan-guard.nft 2>/dev/null; then
+  ok "the LAN guard keeps the node address 10.250.0.1 off the home network"
+else
+  fail "/etc/homelab/k3s-lan-guard.nft lacks 'ip daddr 10.250.0.1 drop' (DevOps guide, Install Kubernetes, step 4)"
+fi
+if [[ -d /var/backups/homelab ]]; then ok "/var/backups/homelab exists (the nightly backups go there)"
+else fail "/var/backups/homelab is missing: sudo install -d -m 0700 /var/backups/homelab"; fi
 
 echo "==> Secrets"
 # The Secrets the releases in helmfile.yaml.gotmpl use (each release checks its own before deploying)
@@ -53,10 +60,10 @@ else
 fi
 
 echo "==> Configs"
-caddy_tag="$(awk '/^  caddy:/ { print $2 }' environments/versions.yaml)"
+tag() { awk -v name="$1" '$1 == name ":" { print $2 }' environments/versions.yaml; }
 # A throwaway pod runs `caddy validate` on the Caddyfile, sent on stdin; the secrets it reads are
 # replaced by placeholders.
-if k run "caddy-validate-$$" --rm -i --quiet --restart=Never --image="caddy:${caddy_tag}" \
+if k run "caddy-validate-$$" --rm -i --quiet --restart=Never --image="caddy:$(tag caddy)" \
   --env="HOMELAB_DOMAIN=$domain" --env=TASKER_GATEWAY_SECRET=placeholder --env=LLM_GATEWAY_API_KEY=placeholder \
   --command -- sh -c 'cat >/tmp/Caddyfile && caddy validate --config /tmp/Caddyfile --adapter caddyfile' \
   <gateway/caddy/Caddyfile >/dev/null 2>"${TMPDIR:-/tmp}/caddy-validate.log"; then
@@ -66,6 +73,48 @@ else
 fi
 if bash -n gateway/keycloak/sync.sh; then ok "gateway/keycloak/sync.sh (syntax)"; else fail "gateway/keycloak/sync.sh has a syntax error"; fi
 if jq empty ai/mcp-inspector/servers.json 2>/dev/null; then ok "ai/mcp-inspector/servers.json (JSON)"; else fail "ai/mcp-inspector/servers.json is not valid JSON"; fi
+for f in observability/dashboards/grafana/dashboards/*.json; do
+  if jq empty "$f" 2>/dev/null; then ok "$f (JSON)"; else fail "$f is not valid JSON"; fi
+done
+if python3 -c 'import yaml' 2>/dev/null; then
+  if python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' ai/llm/config.yml 2>/dev/null; then
+    ok "ai/llm/config.yml (YAML)"
+  else
+    fail "ai/llm/config.yml is not valid YAML"
+  fi
+fi
+
+# Runs a tool's own config check in a throwaway pod, the config file mounted from a throwaway
+# ConfigMap at /check/<file name>: description, image, file, command...
+check_config() {
+  local description="$1" image="$2" file="$3"; shift 3
+  local name="validate-$$-$RANDOM" overrides out
+  k create configmap "$name" --from-file="$(basename "$file")=$file" >/dev/null
+  overrides="$(jq -n --arg name "$name" --arg image "$image" \
+    --argjson command "$(printf '%s\n' "$@" | jq -R . | jq -s .)" '{
+    spec: {
+      restartPolicy: "Never",
+      containers: [{ name: "check", image: $image, command: $command,
+                     volumeMounts: [{ name: "config", mountPath: "/check" }] }],
+      volumes: [{ name: "config", configMap: { name: $name } }]
+    }
+  }')"
+  if out="$(k run "$name" --rm -i --quiet --restart=Never --image="$image" --overrides="$overrides" 2>&1)"; then
+    ok "$description"
+  else
+    fail "$description:"; sed 's/^/      /' <<<"$out" | tail -n 20 >&2
+  fi
+  k delete configmap "$name" >/dev/null
+}
+check_config "observability/metrics/prometheus/prometheus.yml (promtool)" "prom/prometheus:$(tag prometheus)" \
+  observability/metrics/prometheus/prometheus.yml /bin/promtool check config /check/prometheus.yml
+check_config "observability/logs/loki/config.yml (loki -verify-config)" "grafana/loki:$(tag loki)" \
+  observability/logs/loki/config.yml /usr/bin/loki -config.file=/check/config.yml -verify-config
+check_config "observability/collectors/otel-collector/config.yml (otelcol validate)" \
+  "otel/opentelemetry-collector-contrib:$(tag otelCollector)" \
+  observability/collectors/otel-collector/config.yml /otelcol-contrib validate --config=/check/config.yml
+check_config "observability/collectors/alloy/config.alloy (alloy fmt)" "grafana/alloy:$(tag alloy)" \
+  observability/collectors/alloy/config.alloy /bin/alloy fmt /check/config.alloy
 
 echo "==> Database migrations"
 for f in repository/postgres/migrations/*.sql; do

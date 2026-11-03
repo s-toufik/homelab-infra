@@ -1,0 +1,54 @@
+# Tempo: traces, 7 days (./config.yml), from the OTel Collector; its metrics generator sends
+# service graphs and span metrics to Prometheus. API served by the gateway on :3200 (signed in).
+kind: StatefulSet
+
+image:
+  repository: grafana/tempo
+  tag: {{ .Values.images.tempo | quote }}
+
+args: [-config.file=/etc/tempo/config.yml]
+
+ports:
+  - { name: http, port: 3200 }
+  - { name: otlp-grpc, port: 4317 }
+  - { name: otlp-http, port: 4318 }
+
+probes:
+  startup:
+    httpGet: { path: /ready, port: http }
+    periodSeconds: 5
+    failureThreshold: 60
+  readiness:
+    httpGet: { path: /ready, port: http }
+    periodSeconds: 15
+  liveness:
+    tcpSocket: { port: http }
+    periodSeconds: 30
+    failureThreshold: 5
+
+metrics:
+  port: 3200
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { memory: 3Gi }
+
+persistence:
+  data:
+    mountPath: /var/tempo
+    size: 20Gi
+
+configFiles:
+  config:
+    mountPath: /etc/tempo
+    files:
+      config.yml: |
+        {{- readFile "config.yml" | nindent 8 }}
+
+# The image's tempo user
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+securityContext:
+  readOnlyRootFilesystem: true

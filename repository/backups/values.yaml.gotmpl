@@ -1,0 +1,81 @@
+# backups: every night, a dump of PostgreSQL (databases homelab and keycloak) and of MongoDB into
+# the server's /var/backups/homelab (root only), kept {{ .Values.backups.keepDays }} days. Outside Kubernetes on
+# purpose: a reset of the homelab leaves them, and they are plain files to copy elsewhere.
+# No pod keeps running.
+kind: None
+
+image:
+  repository: ghcr.io/cloudnative-pg/postgresql
+  tag: {{ .Values.images.postgres | quote }}
+
+cronJobs:
+  postgres:
+    schedule: {{ .Values.backups.schedule | quote }}
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        dir=/backups/postgres stamp="$(date +%F_%H%M)"
+        mkdir -p "$dir"
+        for db in homelab keycloak; do
+          pg_dump --format=custom --dbname="$db" --file="$dir/${db}_$stamp.dump.tmp"
+          mv "$dir/${db}_$stamp.dump.tmp" "$dir/${db}_$stamp.dump"
+          echo "→ $dir/${db}_$stamp.dump"
+        done
+        find "$dir" -name '*.dump' -mtime +"$KEEP_DAYS" -print -delete
+    env:
+      PGHOST: postgres-rw
+      PGUSER: postgres
+      PGSSLMODE: require
+      KEEP_DAYS: {{ .Values.backups.keepDays | quote }}
+    secretEnv:
+      PGPASSWORD: { secret: postgres-superuser, key: password }
+    volumes:
+      - { name: backups, hostPath: { path: /var/backups/homelab, type: Directory } }
+    volumeMounts:
+      - { name: backups, mountPath: /backups }
+    # Root, to write into the root-only folder; no capability, no privilege escalation
+    securityContext:
+      runAsUser: 0
+      runAsGroup: 0
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { memory: 512Mi }
+
+  mongodb:
+    schedule: {{ .Values.backups.schedule | quote }}
+    image:
+      repository: mongo
+      tag: {{ .Values.images.mongodb | quote }}
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        dir=/backups/mongodb stamp="$(date +%F_%H%M)"
+        mkdir -p "$dir"
+        # The password goes in a file, not on the command line
+        printf 'password: "%s"\n' "$MONGO_PASSWORD" >/tmp/mongodump.yml
+        mongodump --host=mongodb --username="$MONGO_USER" --authenticationDatabase=admin \
+          --config=/tmp/mongodump.yml --archive="$dir/mongodb_$stamp.archive.tmp" --gzip --quiet
+        mv "$dir/mongodb_$stamp.archive.tmp" "$dir/mongodb_$stamp.archive"
+        echo "→ $dir/mongodb_$stamp.archive"
+        find "$dir" -name '*.archive' -mtime +"$KEEP_DAYS" -print -delete
+    env:
+      KEEP_DAYS: {{ .Values.backups.keepDays | quote }}
+    secretEnv:
+      MONGO_USER: { secret: mongodb, key: username }
+      MONGO_PASSWORD: { secret: mongodb, key: password }
+    volumes:
+      - { name: backups, hostPath: { path: /var/backups/homelab, type: Directory } }
+      - { name: tmp, emptyDir: {} }
+    volumeMounts:
+      - { name: backups, mountPath: /backups }
+      - { name: tmp, mountPath: /tmp }
+    securityContext:
+      runAsUser: 0
+      runAsGroup: 0
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { memory: 512Mi }

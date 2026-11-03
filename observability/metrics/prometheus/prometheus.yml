@@ -21,51 +21,47 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  - job_name: otel-collector
-    static_configs:
-      - targets: ["otel-collector:8888"]
+  # Every pod in namespace homelab annotated prometheus.io/scrape: "true" (the charts' `metrics:`),
+  # on its prometheus.io/port and prometheus.io/path. job = the pod's app.kubernetes.io/name
+  # (loki, grafana, kafka-exporter…), or postgres for the PostgreSQL operator's pods.
+  - job_name: pods
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [homelab]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        regex: "true"
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_phase]
+        regex: Running
+        action: keep
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        regex: '([^:]+)(?::\d+)?;(\d+)'
+        replacement: "$1:$2"
+        target_label: __address__
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        regex: (.+)
+        target_label: __metrics_path__
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+        regex: (.+)
+        target_label: job
+      - source_labels: [__meta_kubernetes_pod_label_cnpg_io_cluster]
+        regex: (.+)
+        target_label: job
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
 
-  - job_name: cadvisor
-    static_configs:
-      - targets: ["cadvisor:8080"]
-
-  - job_name: alloy
-    static_configs:
-      - targets: ["alloy:12345"]
-
-  - job_name: loki
-    static_configs:
-      - targets: ["loki:3100"]
-
-  - job_name: tempo
-    static_configs:
-      - targets: ["tempo:3200"]
-
-  - job_name: grafana
-    static_configs:
-      - targets: ["grafana:3000"]
-
-  - job_name: kafka-exporter
-    scrape_interval: 30s
-    static_configs:
-      - targets: ["kafka-exporter:9308"]
-
-  - job_name: postgres-exporter
-    scrape_interval: 30s
-    static_configs:
-      - targets: ["postgres-exporter:9187"]
-
-  - job_name: mongodb-exporter
-    scrape_interval: 30s
-    static_configs:
-      - targets: ["mongodb-exporter:9216"]
-
+  # llama-swap: the always-on model, plus each on-demand model while it is loaded (llm-sd lists
+  # them; scraping an unloaded one would load it)
   - job_name: llama-cpp
     static_configs:
-      - targets: [ "llm:8080" ]
+      - targets: ["llm:8080"]
         labels:
           model: qwen3-8b
           __metrics_path__: /upstream/qwen3-8b/metrics
-    file_sd_configs:
-      - files: [ "/etc/prometheus/file_sd/llm/llm-targets.json" ]
+    http_sd_configs:
+      - url: http://llm-sd:8000/targets
         refresh_interval: 15s

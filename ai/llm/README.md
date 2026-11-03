@@ -21,28 +21,28 @@ The three small Qwen models (under 3B) are meant for tool calling and agent loop
 
 Some entries use community GGUF conversions because the original org doesn't publish one: `ministral-8b-instruct-2410` (bartowski) and the `qwen3.5-*` models (unsloth).
 
-- From containers: `http://llm:8080/v1` (no key)
-- From your devices: `https://<HOMELAB_DOMAIN>:8090/v1` with the header `Authorization: Bearer <LLM_GATEWAY_API_KEY>` (from `.env`); the playground `https://<HOMELAB_DOMAIN>:8090/ui` uses your sign-in instead
+- From pods: `http://llm:8080/v1` (no key)
+- From your devices: `https://<HOMELAB_DOMAIN>:8090/v1` with the header `Authorization: Bearer <key>`, the key in Secret `llm-gateway` (`kubectl -n homelab get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d`); the playground `https://<HOMELAB_DOMAIN>:8090/ui` uses your sign-in instead
 
 ## First start
 
-`hooks.on_startup.preload` (in `config.yml`) only lists `qwen3-8b` — that's the only model downloaded and loaded automatically when the `llm` container starts.
+`hooks.on_startup.preload` (in `config.yml`) only lists `qwen3-8b` — that's the only model downloaded and loaded automatically when the `llm` pod starts.
 
 ```bash
-make up-llm
-make llm-logs          # watch the download, Ctrl+C once you see it finish
+make apply R=llm
+make logs R=llm        # watch the download, Ctrl+C once you see it finish
 make llm-status
 ```
 
-Every other model downloads on its own the first time it's *requested* — fine for occasional use, but the first request against a new model will sit there downloading before it answers. To pre-warm one or more models ahead of time instead (into the same `homelab_llm-models` volume, no server restart needed):
+Every other model downloads on its own the first time it's *requested* — fine for occasional use, but the first request against a new model will sit there downloading before it answers. To pre-warm one or more models ahead of time instead (into the same `models` volume, no restart needed):
 
 ```bash
-./scripts/download_models.sh --list                       # model names, read from this file
-./scripts/download_models.sh qwen3-14b qwen3.5-2b              # download just these
-./scripts/download_models.sh --all                         # download everything (old preload-all behavior, but on your terms)
+make llm-models                                   # model names, read from config.yml
+make llm-download MODELS="qwen3-14b qwen3.5-2b"   # download just these
+make llm-download MODELS=--all                    # download everything
 ```
 
-It reads each model's exact `-hf <repo>:<quant>` straight out of `config.yml` and fetches it with the same llama-swap image, so there's no separate mapping to keep in sync — editing a model's quant here is picked up automatically.
+It asks the running llama-swap to load each model with a one-token request, so the download lands exactly where llama-swap keeps it; an on-demand model then unloads after its `ttl`.
 
 ## Test
 
@@ -79,14 +79,14 @@ A model that isn't listed isn't loaded.
 Edit `models` in [`config.yml`](config.yml), then apply with:
 
 ```bash
-make recreate S=llm
+make apply R=llm
 ```
 
-Always use `recreate`, not a restart — reload doesn't reliably pick up `config.yml` edits here. Any GGUF on Hugging Face works with `-hf <repo>:<quant>`; check the exact quant filename in the repo first (some repos use non-standard tags like `UD-Q4_K_M`, and `Qwen/Qwen3-1.7B-GGUF` only ships `Q8_0`).
+The pod restarts with the new file. Any GGUF on Hugging Face works with `-hf <repo>:<quant>`; check the exact quant filename in the repo first (some repos use non-standard tags like `UD-Q4_K_M`, and `Qwen/Qwen3-1.7B-GGUF` only ships `Q8_0`).
 
-Adding or swapping an on-demand model just means adding it to the `on-demand` group's `members` list — no resource-limit change needed as long as it stays under the container's memory cap (see Tuning).
+Adding or swapping an on-demand model just means adding it to the `on-demand` group's `members` list — no resource-limit change needed as long as it stays under the pod's memory cap (see Tuning).
 
-**Don't add a Prometheus target for an on-demand model yourself** (e.g. copying `qwen3-8b`'s target in `observability/metrics/prometheus/prometheus.yml`) — it would force-load that model on every scrape. On-demand models are picked up automatically once loaded; see Metrics.
+**Don't add a Prometheus target for an on-demand model yourself** (e.g. copying `qwen3-8b`'s target in `observability/metrics/prometheus/prometheus.yml`) — it would force-load that model on every scrape. On-demand models are picked up automatically once loaded (`llm-sd`); see Metrics.
 
 ## Tuning
 
@@ -96,14 +96,14 @@ Adding or swapping an on-demand model just means adding it to the `on-demand` gr
 | `--ctx-size` | each model's `cmd` in `config.yml` | Context window in tokens. Higher = more RAM |
 | `--parallel` | each model's `cmd` in `config.yml` | Simultaneous requests. Context is split between them |
 | `ttl` (`&ondemand_ttl` anchor) | each model's entry in `config.yml` | Seconds idle before auto-unload. `0` = never (`qwen3-8b`); `300` = 5 min (all on-demand models, edit the `&ondemand_ttl` line once to change all of them). Actual time to free the RAM is **2×** this — see Metrics below |
-| `deploy.resources.limits` | `compose.yml` | Container-wide CPU/memory cap — must cover `qwen3-8b` + the single largest on-demand model, not the sum of all of them |
+| `resources.limits` | [`values.yaml.gotmpl`](values.yaml.gotmpl) | The pod's memory cap (26 GiB) — must cover `qwen3-8b` + the single largest on-demand model, not the sum of all of them |
 
-If the container is OOM-killed, lower the active on-demand model's `--ctx-size` first. Contexts are kept small (16K for 8–14B models, 32K for the sub-3B ones) to fit a modest host. Only models of 14B or smaller are kept here. `qwen3-14b` plus the always-on `qwen3-8b` is the heaviest pair that can be loaded at the same time.
+If the pod is OOM-killed, lower the active on-demand model's `--ctx-size` first. Contexts are kept small (16K for 8–14B models, 32K for the sub-3B ones) to fit a modest host. Only models of 14B or smaller are kept here. `qwen3-14b` plus the always-on `qwen3-8b` is the heaviest pair that can be loaded at the same time.
 
 ## Metrics
 
 - `qwen3-8b`: full generation-speed / tokens-per-minute panels, always populated.
-- On-demand models: the same panels populate **for up to `ttl` seconds (5 min) after each load**, then go quiet even if the model happens to still be up — this is intentional (see `exporter/poll-running.py`), not a bug: continuously monitoring an on-demand model would otherwise reset its own idle timer and prevent it from ever unloading. Because monitoring itself resets that timer once more right before it stops, the model actually frees its RAM roughly **2× `ttl`** after being loaded (~10 min total with the current `300`), not at the `ttl` mark itself.
+- On-demand models: the same panels populate **for up to `ttl` seconds (5 min) after each load**, then go quiet even if the model happens to still be up — this is intentional (see [`llm-sd.py`](llm-sd.py), which tells Prometheus what to scrape), not a bug: continuously monitoring an on-demand model would otherwise reset its own idle timer and prevent it from ever unloading. Because monitoring itself resets that timer once more right before it stops, the model actually frees its RAM roughly **2× `ttl`** after being loaded (~10 min total with the current `300`), not at the `ttl` mark itself.
 
 Grafana dashboard: **Homelab → LLM (llama.cpp)**.
 

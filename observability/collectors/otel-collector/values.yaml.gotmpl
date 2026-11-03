@@ -1,0 +1,44 @@
+# OTel Collector: the one OTLP entrypoint for applications (./config.yml): traces to Tempo,
+# metrics to Prometheus, logs to Loki. Pods use otel-collector:4317 (gRPC) or :4318 (HTTP); the
+# tailnet's devices <domain>:4317 / :4318.
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: {{ .Values.images.otelCollector | quote }}
+
+args: [--config=/etc/otelcol/config.yml]
+
+ports:
+  - { name: otlp-grpc, port: 4317, hostPort: 4317 }
+  - { name: otlp-http, port: 4318, hostPort: 4318 }
+  - { name: health, port: 13133 }
+  - { name: metrics, port: 8888 }
+
+probes:
+  readiness:
+    httpGet: { path: /, port: health }
+    periodSeconds: 10
+  liveness:
+    httpGet: { path: /, port: health }
+    periodSeconds: 20
+    failureThreshold: 6
+
+metrics:
+  port: 8888
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { memory: 512Mi }
+
+configFiles:
+  config:
+    mountPath: /etc/otelcol
+    files:
+      config.yml: |
+        {{- readFile "config.yml" | nindent 8 }}
+
+# The image's own user
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+securityContext:
+  readOnlyRootFilesystem: true

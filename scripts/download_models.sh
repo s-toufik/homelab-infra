@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# Download one or more llama-swap models into the llm-models volume, on demand —
-# decoupled from container startup (see ai/llm/config.yml hooks.on_startup.preload
-# and ai/llm/README.md). Reads the exact `-hf <repo>:<quant>` spec straight out of
-# ai/llm/config.yml and fetches it with the same llama-swap image/binary that
-# serves it, so the download lands in the exact cache llama-swap expects.
+# Downloads llama-swap models ahead of their first use: asks the running llm release to load each
+# one (a one-token request through the gateway), which downloads it into its volume. Model names
+# and their `-hf <repo>:<quant>` come from ai/llm/config.yml. An on-demand model unloads by itself
+# after its ttl.
 source "$(dirname "$0")/_common.sh"
-load_env
+require_cluster
 
 CONFIG_FILE="$ROOT_DIR/ai/llm/config.yml"
-VOLUME="homelab_llm-models"
-IMAGE="ghcr.io/mostlygeek/llama-swap:${LLAMA_SWAP_TAG:-cpu}"
 TIMEOUT_SECONDS=3600
+DOMAIN="$(local_value domain)"
 
 usage() {
   cat <<EOF
@@ -44,42 +42,26 @@ hf_spec_for() {
 }
 
 download_one() {
-  local model="$1" spec container log_pid waited=0
+  local model="$1" spec started
   spec="$(hf_spec_for "$model")"
   if [[ -z "$spec" ]]; then
     red "Unknown model: $model (see --list)"
     return 1
   fi
 
-  echo "==> $model ($spec)"
-  container="model-fetch-$$-${model//./-}"
-  docker run -d --rm --name "$container" \
-    -v "${VOLUME}:/models" -e LLAMA_CACHE=/models \
-    "$IMAGE" /app/llama-server --host 127.0.0.1 --port 8080 -hf "$spec" -c 16 --parallel 1 \
-    >/dev/null
-
-  docker logs -f "$container" 2>&1 | sed 's/^/    /' &
-  log_pid=$!
-
-  until docker exec "$container" curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; do
-    if ! docker ps -q --filter "name=^/${container}\$" | grep -q .; then
-      wait "$log_pid" 2>/dev/null || true
-      red "$model: container exited before finishing — see log above"
-      return 1
-    fi
-    sleep 3
-    waited=$((waited + 3))
-    if (( waited > TIMEOUT_SECONDS )); then
-      docker stop "$container" >/dev/null 2>&1 || true
-      wait "$log_pid" 2>/dev/null || true
-      red "$model: timed out after $((TIMEOUT_SECONDS / 60)) minutes"
-      return 1
-    fi
-  done
-
-  docker stop "$container" >/dev/null 2>&1 || true
-  wait "$log_pid" 2>/dev/null || true
-  green "$model cached."
+  echo "==> $model ($spec): downloading if needed, then loading (follow it: make logs R=llm)"
+  started=$SECONDS
+  # The gateway's API key goes to curl on stdin, never on a command line
+  if printf 'header = "Authorization: Bearer %s"\n' "$API_KEY" |
+    curl -fsS -o /dev/null --max-time "$TIMEOUT_SECONDS" -K - \
+      -H 'Content-Type: application/json' \
+      -d "{\"model\": \"$model\", \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}], \"max_tokens\": 1}" \
+      "https://$DOMAIN:8090/v1/chat/completions"; then
+    green "$model cached and loaded ($(( SECONDS - started ))s)."
+  else
+    red "$model: failed — see make logs R=llm"
+    return 1
+  fi
 }
 
 [[ $# -gt 0 ]] || usage
@@ -91,6 +73,7 @@ case "$1" in
   *) models=("$@") ;;
 esac
 
+API_KEY="$(k get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d)"
 status=0
 for m in "${models[@]}"; do
   download_one "$m" || status=1
