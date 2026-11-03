@@ -9,9 +9,9 @@ require_cluster
 errors=0
 fail() { red "  ✗ $*"; errors=$((errors + 1)); }
 ok()   { green "  ✓ $*"; }
-expect() { # description, condition...
+expect() { # description, condition... (the condition's own output is hidden)
   local description="$1"; shift
-  if "$@"; then ok "$description"; else fail "$description"; fi
+  if "$@" >/dev/null 2>&1; then ok "$description"; else fail "$description"; fi
 }
 
 domain="$(local_value domain)"
@@ -102,6 +102,9 @@ expect "a user cannot write a workflow in another user's name" contains "$rls" "
 echo "==> MongoDB and Kafka"
 expect "MongoDB answers" \
   equals "$(k exec mongodb-0 -- mongosh --quiet --eval "db.adminCommand('ping').ok" 2>/dev/null || true)" "1"
+# 8.x refuses to start on the server's kernel (SERVER-121912)
+mongo_image="$(k get statefulset mongodb -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+expect "MongoDB runs 7.0 (${mongo_image:-no mongodb StatefulSet})" contains "$mongo_image" "mongo:7.0"
 expect "Kafka answers" \
   k exec kafka-0 -- /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092
 expect "Kafka UI is up" \

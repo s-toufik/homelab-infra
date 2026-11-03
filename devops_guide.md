@@ -934,7 +934,7 @@ Apps get the new `app` chart with their next release (their CI builds on the lat
 
 ## Check the homelab
 
-- Pods: `make status` — raw: `kubectl -n homelab get pods -o wide`
+- Pods: `make status` (or `make ps`) — raw: `kubectl -n homelab get pods -o wide`
 - Everything, every line ✓: `make verify` — raw: `./scripts/verify.sh`
 - Releases and versions: `make releases` — raw: `helm list -A`
 - Logs: `make logs R=<release>` — raw: `kubectl -n homelab logs -f --tail=200 -l app.kubernetes.io/instance=<release> --all-containers --prefix` (PostgreSQL: `-l cnpg.io/cluster=postgres`)
@@ -1133,6 +1133,10 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 1. `kubectl -n homelab logs job/db-migrate-migrate`
 2. Fix the migration file, then `make migrate`.
 
+**A release's pods are gone, and `make apply` doesn't bring them back**
+1. `make apply` only upgrades releases whose files changed; something deleted by hand stays deleted.
+2. `git pull` (the server may be behind), then `make sync R=<release>` — raw: `helmfile -l name=<release> sync` (re-deploys it even without a change).
+
 **`another operation (install/upgrade/rollback) is in progress`**
 1. `helm -n homelab history <release>`
 2. `make rollback R=<release>`
@@ -1164,7 +1168,7 @@ Deletes all data: databases, accounts, Secrets, volumes. The operators (`cnpg`, 
 | `make template [R=…\|G=…]` | `helmfile [-l name=<release>\|-l group=<group>] template` |
 | `make releases` | `helm list -A` |
 | `make rollback R=…` | `helm -n homelab rollback <release>` |
-| `make status` | `kubectl -n homelab get pods -o wide` |
+| `make status` · `make ps` | `kubectl -n homelab get pods -o wide` |
 | `make logs R=… [TAIL=…]` | `kubectl -n homelab logs -f --tail=200 -l app.kubernetes.io/instance=<release> --all-containers --prefix` |
 | `make events` | `kubectl -n homelab get events --sort-by=.lastTimestamp \| tail -n 40` |
 | `make top` | `kubectl -n homelab top pods` |
