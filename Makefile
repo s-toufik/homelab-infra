@@ -81,9 +81,10 @@ rollback: ## Go back to a release's previous revision: make rollback R=<release>
 
 ##@ Inspect
 
-.PHONY: status
-status: ## Pods, their state and restarts
+.PHONY: status ps
+status: ## Pods, their state and restarts (also: make ps)
 	@kubectl -n $(NS) get pods -o wide
+ps: status
 
 # PostgreSQL's pods are labelled by its operator, the others by Helm
 PODS_OF = $(if $(filter postgres,$(R)),cnpg.io/cluster=postgres,app.kubernetes.io/instance=$(R))
