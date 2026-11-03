@@ -1,2 +1,6 @@
 # Settings shared by every release. The server's own name and address are in local.yaml.
 timezone: Europe/Paris
+
+# agent-runtime's LLM provider (OpenAI-compatible): NVIDIA's API, its key in Secret agent-runtime
+# (make secret-set SECRET=agent-runtime KEY=llm-api-key); or http://llm:8080/v1 for the local llama-swap
+llmBaseUrl: https://integrate.api.nvidia.com/v1

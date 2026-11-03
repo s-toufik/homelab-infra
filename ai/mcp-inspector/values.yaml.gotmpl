@@ -1,0 +1,70 @@
+# MCP Inspector: agent-toolbox's tools in the browser, at https://<domain>:6274 through the
+# gateway (signed in). Its server list (./servers.json) is read-only: agent-toolbox only.
+image:
+  repository: ghcr.io/modelcontextprotocol/inspector
+  tag: {{ .Values.images.mcpInspector | quote }}
+
+args: [--web, --config, /etc/mcp-inspector/servers.json]
+
+env:
+  # Caddy rewrites the Host header to this service's name; the browser's Origin is the gateway's
+  ALLOWED_ORIGINS: https://{{ .Values.domain }}:6274
+  MCP_INSPECTOR_ALLOWED_HOSTS: mcp-inspector,mcp-inspector:6274
+  # Nothing written to disk: no keychain in a container, and no secrets to keep
+  MCP_INSPECTOR_SECRET_STORE: memory
+
+ports:
+  - { name: http, port: 6274 }
+
+probes:
+  readiness:
+    httpGet:
+      path: /
+      port: http
+      httpHeaders: [{ name: Host, value: "mcp-inspector:6274" }]
+    periodSeconds: 15
+  liveness:
+    httpGet:
+      path: /
+      port: http
+      httpHeaders: [{ name: Host, value: "mcp-inspector:6274" }]
+    periodSeconds: 30
+    failureThreshold: 5
+
+resources:
+  requests: { cpu: 20m, memory: 96Mi }
+  limits: { memory: 256Mi }
+
+# The image's node user
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+configFiles:
+  servers:
+    mountPath: /etc/mcp-inspector
+    files:
+      servers.json: |
+        {{- readFile "servers.json" | nindent 8 }}
+
+# It can start processes, so like agent-toolbox it reaches nothing in the homelab but
+# agent-toolbox: no database, Kafka or LLM. It keeps the internet. Only Caddy reaches it.
+networkPolicy:
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: caddy } }
+      ports: [{ protocol: TCP, port: 6274 }]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    - to:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: agent-toolbox } }
+      ports: [{ protocol: TCP, port: 8001 }]
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            # The cluster, the server, the home network and the tailnet
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16]

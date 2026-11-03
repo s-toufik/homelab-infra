@@ -26,7 +26,10 @@ Scenarios, as steps. Each `make` command is followed by the raw command it runs.
 [Check the homelab](#check-the-homelab) ·
 [Accounts](#accounts) ·
 [Secrets](#secrets) ·
-[Database shell](#database-shell) ·
+[Database shells](#database-shells) ·
+[Database migrations](#database-migrations) ·
+[LLM and agent](#llm-and-agent) ·
+[Kafka](#kafka) ·
 [Troubleshooting](#troubleshooting) ·
 [Reset the homelab](#reset-the-homelab) ·
 [Every make command](#every-make-command)
@@ -812,7 +815,7 @@ Once. Charts and images must be public, so the server pulls them without a login
 4. [github.com/s-toufik?tab=packages](https://github.com/s-toufik?tab=packages) → `charts/app` → **Package settings → Change visibility → Public**. Same for `charts/pg-cluster`.
 5. Check on the server: `helm show chart oci://ghcr.io/s-toufik/charts/app --version 0.1.0` → `name: app`.
 
-**Each app repository (homelab-ui first)**
+**Each app repository: homelab-ui, agent-toolbox, agent-runtime**
 1. **Settings → Environments → production → Deployment branches and tags**: if it is restricted, **Add deployment branch or tag rule** → **Tag** `v*`.
 2. Merge the release to `main`, then tag it (on your Mac, in the app repository):
    ```bash
@@ -820,8 +823,8 @@ Once. Charts and images must be public, so the server pulls them without a login
    git push origin v1.0.0
    ```
 3. **Actions**: PUBLISH and CHART are green.
-4. Packages → `charts/homelab-ui` → **Change visibility → Public**.
-5. Check on the server: `helm show chart oci://ghcr.io/s-toufik/charts/homelab-ui --version 1.0.0` → `name: homelab-ui`.
+4. Packages → `charts/<app>` → **Change visibility → Public**.
+5. Check on the server: `helm show chart oci://ghcr.io/s-toufik/charts/<app> --version 1.0.0` → `name: <app>`.
 
 ## First deploy
 
@@ -836,22 +839,25 @@ Once. Charts and images must be public, so the server pulls them without a login
 3. Create the passwords and keys:
    - `make secrets`
    - raw: `./scripts/secrets.sh`
-4. Check:
+4. Type the LLM provider's API key (NVIDIA's `nvapi-…`; any text if `llmBaseUrl` in `environments/default.yaml` is the local `http://llm:8080/v1`):
+   - `make secret-set SECRET=agent-runtime KEY=llm-api-key`
+   - raw: `./scripts/secrets.sh set agent-runtime llm-api-key`
+5. Check:
    - `make validate`
    - raw: `./scripts/validate.sh`
-5. Deploy everything (the first time ~10 minutes: images download, PostgreSQL starts):
+6. Deploy everything (the first time ~10 minutes: images download, PostgreSQL starts):
    - `make apply`
    - raw: `helmfile apply`
-6. Create your account (email, names, password twice):
+7. Create your account (email, names, password twice):
    - `make user-add ACCOUNT=<name>`
    - raw: `./scripts/users.sh add <name>`
-7. Make it admin:
+8. Make it admin:
    - `make user-admin ACCOUNT=<name>`
    - raw: `./scripts/users.sh admin <name>`
-8. Verify, every line ✓:
+9. Verify, every line ✓:
    - `make verify`
    - raw: `./scripts/verify.sh`
-9. Open `https://<HOMELAB_DOMAIN>/` on a Tailscale device and sign in.
+10. Open `https://<HOMELAB_DOMAIN>/` on a Tailscale device and sign in.
 
 ## Deploy
 
@@ -862,7 +868,7 @@ Once. Charts and images must be public, so the server pulls them without a login
 **Apply it**
 - everything (the release train): `make apply` — raw: `helmfile apply`
 - one release: `make apply R=<release>` — raw: `helmfile -l name=<release> apply`
-- one group (`platform`, `repository`, `gateway`, `apps`): `make apply G=<group>` — raw: `helmfile -l group=<group> apply`
+- one group (`platform`, `repository`, `message-broker`, `gateway`, `ai`, `apps`): `make apply G=<group>` — raw: `helmfile -l group=<group> apply`
 
 **Re-run a release's deploy jobs without a change** (e.g. Keycloak's realm sync)
 - `make sync R=<release>`
@@ -885,7 +891,7 @@ Once. Charts and images must be public, so the server pulls them without a login
 3. **Actions**: PUBLISH (image `toufik142/<app>:<X.Y.Z>`) and CHART (`oci://ghcr.io/s-toufik/charts/<app>:<X.Y.Z>`) are green.
 
 **In homelab-infra**
-4. Set the version in `environments/versions.yaml` (e.g. `apps.homelabUi: <X.Y.Z>`), commit, push.
+4. Set the version in `environments/versions.yaml` (`apps.homelabUi`, `apps.agentToolbox` or `apps.agentRuntime`), commit, push.
 
 **On the server**
 5. `git pull`
@@ -1012,10 +1018,67 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 **Read one** (e.g. the LLM API key, for a script)
 - `kubectl -n homelab get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d; echo`
 
-## Database shell
+## Database shells
 
-- `make psql` — raw: `kubectl -n homelab exec -it "$(kubectl -n homelab get pod -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o name)" -c postgres -- psql -d homelab`
+- PostgreSQL: `make psql` — raw: `kubectl -n homelab exec -it "$(kubectl -n homelab get pod -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o name)" -c postgres -- psql -d homelab`
 - Keycloak's database: `\c keycloak` inside psql.
+- MongoDB: `make mongosh` — raw: `kubectl -n homelab exec -it mongodb-0 -- sh -c 'mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin'`
+
+## Database migrations
+
+**Add a migration** (on your Mac, in homelab-infra)
+1. `make migration-new NAME=<what_it_does>` — raw: create `repository/postgres/migrations/<next number>_<what_it_does>.sql` with `-- migrate:up` and `-- migrate:down`
+2. Write the up and down SQL. If PostgREST serves what it changes, end `migrate:up` with `NOTIFY pgrst, 'reload schema';`.
+3. Commit, push.
+
+**Apply it** (on the server)
+1. `git pull`
+2. `make validate` → the file has both sections.
+3. `make migrate`
+   - raw:
+     ```bash
+     helmfile -l name=db-migrate sync
+     kubectl -n homelab exec "$(kubectl -n homelab get pod -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o name)" -c postgres -- psql -d homelab -qc "NOTIFY pgrst, 'reload schema'"
+     ```
+4. `make migrate-status` — raw: `./scripts/dbmate.sh status` → every file `[X]`.
+
+**Undo the latest**
+1. `make migrate-rollback`, type `rollback` — raw: `./scripts/dbmate.sh rollback`
+2. Delete or fix the file, commit, push (otherwise the next deploy applies it again).
+
+## LLM and agent
+
+**Chat**
+- homelab-ui → **Agent**.
+
+**Call the agent API** (from a tailnet device)
+- `http://<HOMELAB_DOMAIN>:8000/docs`
+
+**Connect an MCP client to agent-toolbox** (from a tailnet device)
+- `http://<HOMELAB_DOMAIN>:8001/mcp`
+- With the short MagicDNS name, add it to `TOOLBOX_EXTRA_ALLOWED_HOSTS` in agent-toolbox's `devops/helm/values.yml` and release it.
+
+**List and try the tools in the browser**
+- `https://<HOMELAB_DOMAIN>:6274` (MCP Inspector, signed in) → **Connect** → **Tools → List Tools**.
+
+**Change the LLM provider**
+1. `llmBaseUrl` in `environments/default.yaml`: NVIDIA's `https://integrate.api.nvidia.com/v1`, or the local `http://llm:8080/v1`.
+2. Its API key: `make secret-set SECRET=agent-runtime KEY=llm-api-key`
+3. `make apply R=agent-runtime`
+
+**Update the MCP Inspector**
+1. `images.mcpInspector` in `environments/versions.yaml` ([its releases](https://github.com/modelcontextprotocol/inspector/releases)).
+2. `make apply R=mcp-inspector`
+
+## Kafka
+
+- Topics: `make topics` — raw: `kubectl -n homelab exec -it kafka-0 -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list`
+- Create one: `make topic-create TOPIC=<name> [PARTITIONS=3]` — raw: `kubectl -n homelab exec -it kafka-0 -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic <name> --partitions 3 --replication-factor 1`
+- Describe it: `make topic-describe TOPIC=<name>` — raw: `kubectl -n homelab exec -it kafka-0 -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic <name>`
+- Read it from the start: `make consume TOPIC=<name>` — raw: `kubectl -n homelab exec -it kafka-0 -- /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic <name> --from-beginning`
+- Consumer groups and lag: `make groups` — raw: `kubectl -n homelab exec -it kafka-0 -- /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-groups`
+- In the browser: `https://<HOMELAB_DOMAIN>:8080` (Kafka UI, signed in).
+- From a tailnet device: bootstrap server `<HOMELAB_DOMAIN>:9094`.
 
 ## Troubleshooting
 
@@ -1057,6 +1120,18 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 1. `kubectl -n homelab get clusters.postgresql.cnpg.io postgres` → STATUS.
 2. `make logs R=postgres`
 3. Roles: `kubectl -n homelab get clusters.postgresql.cnpg.io postgres -o jsonpath='{.status.managedRolesStatus}'; echo`
+
+**agent-toolbox or the MCP Inspector answers `403` / `Invalid Host header`**
+- The address isn't one it accepts: use `http://<HOMELAB_DOMAIN>:8001/mcp` or `http://<tailscale-ip>:8001/mcp`, or add the name to `TOOLBOX_EXTRA_ALLOWED_HOSTS` (agent-toolbox's `devops/helm/values.yml`, then a release).
+
+**A connection to or from agent-toolbox or the MCP Inspector times out**
+1. Their NetworkPolicy allows only what they need: `kubectl -n homelab get networkpolicy <release> -o yaml`.
+2. Expected: agent-toolbox ← agent-runtime, MCP Inspector, Caddy, tailnet devices; agent-toolbox → DNS, OTel Collector, internet. MCP Inspector ← Caddy; → DNS, agent-toolbox, internet.
+3. A new caller or target: add it in `ai/<release>/values.yaml.gotmpl`, then `make apply R=<release>`.
+
+**The `db-migrate` job fails**
+1. `kubectl -n homelab logs job/db-migrate-migrate`
+2. Fix the migration file, then `make migrate`.
 
 **`another operation (install/upgrade/rollback) is in progress`**
 1. `helm -n homelab history <release>`
@@ -1104,6 +1179,12 @@ Deletes all data: databases, accounts, Secrets, volumes. The operators (`cnpg`, 
 | `make user-unlock ACCOUNT=…` | `./scripts/users.sh unlock <name>` |
 | `make user-remove ACCOUNT=…` | `./scripts/users.sh remove <name>` |
 | `make sessions-revoke` | `./scripts/secrets.sh rotate oauth2-proxy cookie-secret && ./scripts/users.sh logout-all` |
-| `make sh R=…` | `kubectl -n homelab exec -it deploy/<release> -- sh` |
+| `make sh R=…` | `kubectl -n homelab exec -it <release's running pod> -- sh` |
 | `make psql` | `kubectl -n homelab exec -it <postgres primary pod> -c postgres -- psql -d homelab` |
+| `make mongosh` | `kubectl -n homelab exec -it mongodb-0 -- sh -c 'mongosh -u … -p … --authenticationDatabase admin'` |
+| `make migration-new NAME=…` | create `repository/postgres/migrations/<NNN>_<name>.sql` |
+| `make migrate` | `helmfile -l name=db-migrate sync`, then `NOTIFY pgrst, 'reload schema'` in psql |
+| `make migrate-status` | `./scripts/dbmate.sh status` |
+| `make migrate-rollback` | `./scripts/dbmate.sh rollback` |
+| `make topics` · `topic-create` · `topic-describe` · `consume` · `groups` | see [Kafka](#kafka) |
 | `make destroy` | `helmfile destroy` |

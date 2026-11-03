@@ -1,0 +1,39 @@
+# PostgREST: Tasker's REST API over schema "tasker". Reached only through the gateway at
+# /api/tasker/ (signed in, with X-Gateway-Secret); it logs in as postgrest and acts as tasker_web,
+# so PostgreSQL's row-level security shows each account its own rows.
+image:
+  repository: postgrest/postgrest
+  tag: {{ .Values.images.postgrest | quote }}
+
+env:
+  PGRST_DB_URI: host=postgres-rw port=5432 dbname=homelab user=postgrest password=$(POSTGREST_PASSWORD) sslmode=require
+  PGRST_DB_SCHEMAS: tasker
+  PGRST_DB_ANON_ROLE: tasker_web
+  PGRST_DB_PRE_REQUEST: tasker.check_request
+  PGRST_OPENAPI_MODE: disabled
+  PGRST_ADMIN_SERVER_PORT: "3002"   # /live and /ready, for the probes and the Status page
+secretEnv:
+  POSTGREST_PASSWORD: { secret: pg-role-postgrest, key: password }
+  PGRST_APP_SETTINGS_GATEWAY_SECRET: { secret: tasker-gateway, key: secret }
+
+ports:
+  - { name: http, port: 3000 }
+  - { name: admin, port: 3002 }
+
+probes:
+  readiness:
+    httpGet: { path: /ready, port: admin }
+    periodSeconds: 10
+  liveness:
+    httpGet: { path: /live, port: admin }
+    periodSeconds: 20
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+securityContext:
+  readOnlyRootFilesystem: true

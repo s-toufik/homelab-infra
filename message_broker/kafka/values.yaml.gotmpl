@@ -1,0 +1,66 @@
+# Kafka: one KRaft node (broker + controller). Pods use kafka:9092; the tailnet's devices
+# <domain>:9094.
+kind: StatefulSet
+
+image:
+  repository: apache/kafka
+  tag: {{ .Values.images.kafka | quote }}
+
+env:
+  # --- KRaft combined mode (broker + controller); the only voter is this pod itself ---
+  CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+  KAFKA_NODE_ID: "1"
+  KAFKA_PROCESS_ROLES: broker,controller
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  # --- Listeners: PLAINTEXT for pods, EXTERNAL for the tailnet ---
+  KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+  KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://{{ .Values.domain }}:9094
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+  KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  # --- Single-node settings ---
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+  KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: "1"
+  KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: "1"
+  KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+  KAFKA_NUM_PARTITIONS: "3"
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+  KAFKA_LOG_DIRS: /var/lib/kafka/data
+  KAFKA_LOG_RETENTION_HOURS: "168"
+  KAFKA_LOG_RETENTION_BYTES: "10737418240"   # 10 GiB per partition cap
+  # --- JVM ---
+  KAFKA_HEAP_OPTS: -Xms1g -Xmx1g
+
+ports:
+  - { name: kafka, port: 9092 }
+  - { name: external, port: 9094, hostPort: 9094 }
+
+probes:
+  startup:
+    tcpSocket: { port: kafka }
+    periodSeconds: 5
+    failureThreshold: 36
+  readiness:
+    tcpSocket: { port: kafka }
+    periodSeconds: 10
+  liveness:
+    tcpSocket: { port: kafka }
+    periodSeconds: 20
+    failureThreshold: 6
+
+resources:
+  requests: { cpu: 250m, memory: 1536Mi }
+  limits: { memory: 2Gi }
+
+persistence:
+  data:
+    mountPath: /var/lib/kafka/data
+    size: 20Gi
+
+# The image's appuser
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000

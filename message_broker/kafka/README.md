@@ -1,33 +1,20 @@
 # Kafka
 
-Single-node Apache Kafka in **KRaft mode** (no ZooKeeper), broker and controller in one process.
+Apache Kafka 4.x in KRaft mode: one node, broker and controller together, no ZooKeeper. Settings in [`values.yaml.gotmpl`](values.yaml.gotmpl).
 
-| Listener  | Address                          | Use from                     |
-|-----------|----------------------------------|------------------------------|
-| PLAINTEXT | `kafka:9092`                     | other containers in the stack |
-| EXTERNAL  | `${KAFKA_EXTERNAL_HOST}:9094`    | the host or your LAN         |
-| CONTROLLER| `kafka:9093`                     | internal KRaft quorum only   |
+| Listener | Address | Used by |
+|---|---|---|
+| PLAINTEXT | `kafka:9092` | pods in the homelab |
+| EXTERNAL | `<domain>:9094` | the tailnet's devices (the Tailscale address only) |
+| CONTROLLER | `localhost:9093` | the node itself (KRaft) |
 
-Set `KAFKA_EXTERNAL_HOST` in `.env` to the server's LAN IP (or DNS name) if clients connect from another machine; otherwise they receive `localhost` in the metadata and fail to connect.
-
-## Useful commands
+Topics are created on first use (3 partitions), kept 7 days and at most 10 GiB per partition.
 
 ```bash
-# Create a topic
-docker exec -it kafka /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 --create --topic demo --partitions 3 --replication-factor 1
-
-# List topics
-docker exec -it kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
-
-# Produce / consume
-docker exec -it kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic demo
-docker exec -it kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic demo --from-beginning
+make topics                        # list
+make topic-create TOPIC=demo       # create (PARTITIONS=3)
+make consume TOPIC=demo            # read from the beginning
+make groups                        # consumer groups and their lag
 ```
 
-## Notes
-
-- `KAFKA_CLUSTER_ID` is fixed at first start; changing it later on an existing volume will prevent the broker from starting.
-- Retention: 7 days, capped at 10 GiB per partition. Adjust `KAFKA_LOG_RETENTION_*`.
-- Heap is 1 GiB; the rest of the 2 GiB limit is left to the OS page cache, which Kafka relies on heavily.
-- No authentication/TLS: fine on a trusted LAN, do not expose port 9094 to the internet.
+Browse it in [Kafka UI](../kafka-ui/README.md) at `https://<domain>:8080`.

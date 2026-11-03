@@ -1,0 +1,50 @@
+# MongoDB: agent-runtime's conversation checkpoints. Its root account is created from Secret
+# mongodb when the volume is first initialised. Reachable from the tailnet on <domain>:27017.
+kind: StatefulSet
+
+image:
+  repository: mongo
+  tag: {{ .Values.images.mongodb | quote }}
+
+args: [mongod, --wiredTigerCacheSizeGB, "1"]
+
+secretEnv:
+  MONGO_INITDB_ROOT_USERNAME: { secret: mongodb, key: username }
+  MONGO_INITDB_ROOT_PASSWORD: { secret: mongodb, key: password }
+
+ports:
+  - { name: mongodb, port: 27017, hostPort: 27017 }
+
+probes:
+  startup:
+    exec: { command: [mongosh, --quiet, --eval, "db.adminCommand('ping').ok"] }
+    periodSeconds: 5
+    timeoutSeconds: 10
+    failureThreshold: 36
+  readiness:
+    exec: { command: [mongosh, --quiet, --eval, "db.adminCommand('ping').ok"] }
+    periodSeconds: 15
+    timeoutSeconds: 10
+  liveness:
+    exec: { command: [mongosh, --quiet, --eval, "db.adminCommand('ping').ok"] }
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 5
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { memory: 3Gi }
+
+persistence:
+  data:
+    mountPath: /data/db
+    size: 20Gi
+  config:
+    mountPath: /data/configdb
+    size: 1Gi
+
+# The image's own mongodb user: as non-root, its entrypoint starts mongod directly
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 999
+  runAsGroup: 999
