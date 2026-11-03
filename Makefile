@@ -135,11 +135,61 @@ sessions-revoke: ## Sign every account out now (new cookie key + end Keycloak se
 .PHONY: sh
 sh: ## Shell into a release's pod: make sh R=<release>
 	@[ -n "$(R)" ] || { echo "Usage: make sh R=<release>"; exit 1; }
-	@kubectl -n $(NS) exec -it deploy/$(R) -- sh -c 'command -v bash >/dev/null && exec bash || exec sh'
+	@kubectl -n $(NS) exec -it "$$(kubectl -n $(NS) get pod -l $(PODS_OF) --field-selector=status.phase=Running -o name | head -n1)" -- sh -c 'command -v bash >/dev/null && exec bash || exec sh'
 
 .PHONY: psql
 psql: ## psql into PostgreSQL (database homelab, as postgres)
-	@kubectl -n $(NS) exec -it "$$(kubectl -n $(NS) get pod -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o name | head -n1)" -c postgres -- psql -d homelab
+	@kubectl -n $(NS) exec -it "$(PRIMARY)" -c postgres -- psql -d homelab
+
+.PHONY: mongosh
+mongosh: ## mongosh into MongoDB as root
+	@kubectl -n $(NS) exec -it mongodb-0 -- sh -c 'mongosh -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin'
+
+##@ Database migrations (repository/postgres/migrations)
+
+MIGRATIONS_DIR := repository/postgres/migrations
+NAME ?=
+PRIMARY = $$(kubectl -n $(NS) get pod -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o name | head -n1)
+
+.PHONY: migrate migrate-status migrate-rollback migration-new
+migrate: ## Apply the migrations not applied yet, then reload PostgREST's schema
+	@helmfile -l name=db-migrate sync
+	@kubectl -n $(NS) exec "$(PRIMARY)" -c postgres -- psql -d homelab -qc "NOTIFY pgrst, 'reload schema'" && echo "PostgREST schema reloaded"
+migrate-status: ## List applied and pending migrations
+	@./scripts/dbmate.sh status
+migrate-rollback: ## Undo the latest migration (runs its 'migrate:down', asks to confirm)
+	@read -r -p "Undo the latest migration? Its data changes are lost. Type 'rollback' to confirm: " a; \
+	  [ "$$a" = "rollback" ] || { echo "Aborted."; exit 1; }
+	@./scripts/dbmate.sh rollback
+	@kubectl -n $(NS) exec "$(PRIMARY)" -c postgres -- psql -d homelab -qc "NOTIFY pgrst, 'reload schema'" && echo "PostgREST schema reloaded"
+migration-new: ## Create the next numbered migration file: make migration-new NAME=add_workflow_tags
+	@[[ "$(NAME)" =~ ^[a-z0-9_]+$$ ]] || { echo "Usage: make migration-new NAME=<lowercase_with_underscores>"; exit 1; }
+	@last=$$(ls $(MIGRATIONS_DIR) | sed -n 's/^\([0-9][0-9][0-9]\)_.*/\1/p' | sort | tail -n 1); \
+	next=$$(printf '%03d' $$((10#$${last:-0} + 1))); \
+	file=$(MIGRATIONS_DIR)/$${next}_$(NAME).sql; \
+	printf -- '-- migrate:up\n\n\n-- migrate:down\n\n' > "$$file"; \
+	echo "→ $$file  (write the up and down SQL, then: make migrate)"
+
+##@ Kafka
+
+KAFKA := kubectl -n $(NS) exec -it kafka-0 -- /opt/kafka/bin
+TOPIC ?=
+PARTITIONS ?= 3
+
+.PHONY: topics topic-create topic-describe consume groups
+topics: ## List topics
+	@$(KAFKA)/kafka-topics.sh --bootstrap-server localhost:9092 --list
+topic-create: ## Create a topic: make topic-create TOPIC=demo [PARTITIONS=3]
+	@[ -n "$(TOPIC)" ] || { echo "Usage: make topic-create TOPIC=<name>"; exit 1; }
+	@$(KAFKA)/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic $(TOPIC) --partitions $(PARTITIONS) --replication-factor 1
+topic-describe: ## Describe a topic: make topic-describe TOPIC=demo
+	@[ -n "$(TOPIC)" ] || { echo "Usage: make topic-describe TOPIC=<name>"; exit 1; }
+	@$(KAFKA)/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic $(TOPIC)
+consume: ## Read a topic from the beginning: make consume TOPIC=demo
+	@[ -n "$(TOPIC)" ] || { echo "Usage: make consume TOPIC=<name>"; exit 1; }
+	@$(KAFKA)/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic $(TOPIC) --from-beginning
+groups: ## Consumer groups with lag
+	@$(KAFKA)/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-groups
 
 ##@ Danger zone
 

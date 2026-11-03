@@ -1,0 +1,5 @@
+# agent-runtime on this server. How it runs (env, ports, probes, volumes) comes with its chart,
+# from its repository's devops/helm/values.yml; this file sets what is this server's choice.
+env:
+  # NVIDIA's API by default, or the local llama-swap: environments/default.yaml
+  LLM_BASE_URL: {{ .Values.llmBaseUrl | quote }}

@@ -1,7 +1,7 @@
 # The release train: every release on the server, its chart and its version.
 #   helmfile apply                     everything (only what changed is upgraded)
 #   helmfile -l name=homelab-ui apply  one release
-#   helmfile -l group=gateway apply    one group
+#   helmfile -l group=gateway apply    one group (platform, repository, message-broker, gateway, ai, apps)
 # Versions live in environments/versions.yaml; the server's name and address in
 # environments/local.yaml (git-ignored, `make local`). Before a release that uses Secrets is
 # deployed, `scripts/secrets.sh check` makes sure they exist.
@@ -61,6 +61,60 @@ releases:
       # Helm can't tell when a database is ready: wait for the operator to say so
       - { events: [postsync], showlogs: true, command: kubectl, args: [-n, homelab, wait, --for=condition=Ready, clusters.postgresql.cnpg.io/postgres, --timeout=10m] }
 
+  # Tasker's schema: applies the new files of repository/postgres/migrations (a job, no pod stays)
+  - name: db-migrate
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: repository }
+    needs: [homelab/postgres]
+    values:
+      - environments/global.yaml.gotmpl
+      - repository/postgres/migrate.values.yaml.gotmpl
+
+  - name: postgrest
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: repository }
+    needs: [homelab/db-migrate]
+    values:
+      - environments/global.yaml.gotmpl
+      - repository/postgrest/values.yaml.gotmpl
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-postgrest, tasker-gateway] }
+
+  - name: mongodb
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: repository }
+    values:
+      - environments/global.yaml.gotmpl
+      - repository/mongodb/values.yaml.gotmpl
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, mongodb] }
+
+  # ---------- message-broker: event streaming ----------
+  - name: kafka
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: message-broker }
+    values:
+      - environments/global.yaml.gotmpl
+      - message_broker/kafka/values.yaml.gotmpl
+
+  - name: kafka-ui
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: message-broker }
+    needs: [homelab/kafka]
+    values:
+      - environments/global.yaml.gotmpl
+      - message_broker/kafka-ui/values.yaml.gotmpl
+
   # ---------- gateway: HTTPS and one sign-in for every web interface ----------
   - name: caddy
     namespace: homelab
@@ -96,6 +150,39 @@ releases:
       - gateway/oauth2-proxy/values.yaml.gotmpl
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, oauth2-proxy] }
+
+  # ---------- ai: the homelab agent and its tools ----------
+  # Released by their own repositories (chart = app + their devops/helm/values.yml)
+  - name: agent-toolbox
+    namespace: homelab
+    chart: homelab/agent-toolbox
+    version: {{ .Values.apps.agentToolbox }}
+    labels: { group: ai }
+    values:
+      - environments/global.yaml.gotmpl
+      - ai/agent-toolbox/values.yaml.gotmpl
+
+  - name: agent-runtime
+    namespace: homelab
+    chart: homelab/agent-runtime
+    version: {{ .Values.apps.agentRuntime }}
+    labels: { group: ai }
+    needs: [homelab/mongodb, homelab/agent-toolbox]
+    values:
+      - environments/global.yaml.gotmpl
+      - ai/agent-runtime/values.yaml.gotmpl
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, agent-runtime, mongodb] }
+
+  - name: mcp-inspector
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    labels: { group: ai }
+    needs: [homelab/agent-toolbox]
+    values:
+      - environments/global.yaml.gotmpl
+      - ai/mcp-inspector/values.yaml.gotmpl
 
   # ---------- apps: released by their own repositories (chart = app + its devops/helm/values.yml) ----------
   - name: homelab-ui

@@ -65,6 +65,13 @@ else
   fail "gateway/caddy/Caddyfile:"; sed 's/^/      /' "${TMPDIR:-/tmp}/caddy-validate.log" >&2
 fi
 if bash -n gateway/keycloak/sync.sh; then ok "gateway/keycloak/sync.sh (syntax)"; else fail "gateway/keycloak/sync.sh has a syntax error"; fi
+if jq empty ai/mcp-inspector/servers.json 2>/dev/null; then ok "ai/mcp-inspector/servers.json (JSON)"; else fail "ai/mcp-inspector/servers.json is not valid JSON"; fi
+
+echo "==> Database migrations"
+for f in repository/postgres/migrations/*.sql; do
+  if grep -q '^-- migrate:up' "$f" && grep -q '^-- migrate:down' "$f"; then ok "$f"
+  else fail "$f needs both '-- migrate:up' and '-- migrate:down'"; fi
+done
 
 echo
 if (( errors > 0 )); then red "$errors check(s) failed."; exit 1; fi
