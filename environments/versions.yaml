@@ -33,6 +33,6 @@ images:
 
 # Apps released from their own repositories: chart and image share this version (git tag vX.Y.Z)
 apps:
-  homelabUi: 1.1.0
+  homelabUi: 1.1.1
   agentToolbox: 1.0.0
   agentRuntime: 1.0.0

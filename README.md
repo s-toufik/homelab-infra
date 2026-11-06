@@ -2,7 +2,7 @@
 
 A complete platform for one home server, on Kubernetes: HTTPS and one sign-in in front of every web tool, databases, Kafka, full observability (metrics, logs, traces), local LLMs and the homelab agent, all wired together, watched and backed up. Every piece is a Helm release; one command deploys the whole release train.
 
-**Running it?** Every operation, step by step, with the raw command behind each `make` command: **[devops_guide.md](devops_guide.md)**. The charts are in **[kube-charts](https://github.com/s-toufik/kube-charts)**.
+**Running it?** Every operation, step by step, with the raw command behind each `make` command: **[devops_guide.md](devops_guide.md)**. Quick answers (passwords, logs, stop and restart, dev images, scaling): **[Q&A.md](Q&A.md)**. The charts are in **[kube-charts](https://github.com/s-toufik/kube-charts)**.
 
 ```text
                          ┌─────────────────────── homelab (k3s) ────────────────────────────┐
@@ -179,6 +179,7 @@ homelab-infra/
 │   └── local.yaml         this server's Tailscale name and address (git-ignored, make local)
 ├── Makefile               every command (make help)
 ├── devops_guide.md        how to operate it, step by step
+├── Q&A.md                 quick answers: passwords, logs, stop and restart, dev images, scaling
 ├── scripts/               what the make commands run (below)
 │
 │   one folder per release: <group>/<release>/values.yaml.gotmpl + the files it reads
