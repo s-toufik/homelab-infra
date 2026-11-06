@@ -74,5 +74,11 @@ rbac:
       resources: [nodes/proxy, nodes/metrics]
       verbs: [get]
 
+# The image's alloy user: only it may enter /var/lib/alloy. The server's files it reads are
+# readable by everyone.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 473
+  runAsGroup: 473
 securityContext:
   readOnlyRootFilesystem: true
