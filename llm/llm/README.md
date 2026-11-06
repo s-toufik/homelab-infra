@@ -86,7 +86,7 @@ The pod restarts with the new file. Any GGUF on Hugging Face works with `-hf <re
 
 Adding or swapping an on-demand model just means adding it to the `on-demand` group's `members` list — no resource-limit change needed as long as it stays under the pod's memory cap (see Tuning).
 
-**Don't add a Prometheus target for an on-demand model yourself** (e.g. copying `qwen3-8b`'s target in `observability/metrics/prometheus/prometheus.yml`) — it would force-load that model on every scrape. On-demand models are picked up automatically once loaded (`llm-sd`); see Metrics.
+**Don't add a Prometheus target for an on-demand model yourself** (e.g. copying `qwen3-8b`'s target in `observability/prometheus/prometheus.yml`) — it would force-load that model on every scrape. On-demand models are picked up automatically once loaded (`llm-sd`); see Metrics.
 
 ## Tuning
 
@@ -103,7 +103,7 @@ If the pod is OOM-killed, lower the active on-demand model's `--ctx-size` first.
 ## Metrics
 
 - `qwen3-8b`: full generation-speed / tokens-per-minute panels, always populated.
-- On-demand models: the same panels populate **for up to `ttl` seconds (5 min) after each load**, then go quiet even if the model happens to still be up — this is intentional (see [`llm-sd.py`](llm-sd.py), which tells Prometheus what to scrape), not a bug: continuously monitoring an on-demand model would otherwise reset its own idle timer and prevent it from ever unloading. Because monitoring itself resets that timer once more right before it stops, the model actually frees its RAM roughly **2× `ttl`** after being loaded (~10 min total with the current `300`), not at the `ttl` mark itself.
+- On-demand models: the same panels populate **for up to `ttl` seconds (5 min) after each load**, then go quiet even if the model happens to still be up — this is intentional (see [`llm-sd`](../llm-sd/llm-sd.py), which tells Prometheus what to scrape), not a bug: continuously monitoring an on-demand model would otherwise reset its own idle timer and prevent it from ever unloading. Because monitoring itself resets that timer once more right before it stops, the model actually frees its RAM roughly **2× `ttl`** after being loaded (~10 min total with the current `300`), not at the `ttl` mark itself.
 
 Grafana dashboard: **Homelab → LLM (llama.cpp)**.
 

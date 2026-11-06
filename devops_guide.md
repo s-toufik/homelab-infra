@@ -881,7 +881,7 @@ Once. Charts and images must be public, so the server pulls them without a login
 **Apply it**
 - everything (the release train): `make apply` — raw: `helmfile apply`
 - one release: `make apply R=<release>` — raw: `helmfile -l name=<release> apply`
-- one group (`platform`, `repository`, `message-broker`, `observability`, `gateway`, `ai`, `apps`): `make apply G=<group>` — raw: `helmfile -l group=<group> apply`
+- one group (`platform`, `repository`, `message-broker`, `observability`, `gateway`, `llm`, `apps`): `make apply G=<group>` — raw: `helmfile -l group=<group> apply`
 
 **Re-run a release's deploy jobs without a change** (e.g. Keycloak's realm sync)
 - `make sync R=<release>`
@@ -1041,7 +1041,7 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 ## Database migrations
 
 **Add a migration** (on your Mac, in homelab-infra)
-1. `make migration-new NAME=<what_it_does>` — raw: create `repository/postgres/migrations/<next number>_<what_it_does>.sql` with `-- migrate:up` and `-- migrate:down`
+1. `make migration-new NAME=<what_it_does>` — raw: create `repository/db-migrate/migrations/<next number>_<what_it_does>.sql` with `-- migrate:up` and `-- migrate:down`
 2. Write the up and down SQL. If PostgREST serves what it changes, end `migrate:up` with `NOTIFY pgrst, 'reload schema';`.
 3. Commit, push.
 
@@ -1105,7 +1105,7 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 
 **Change a dashboard**
 1. Edit it in Grafana, **Save**; **Export → Export as JSON**.
-2. Replace the file in `observability/dashboards/grafana/dashboards/`, commit, push.
+2. Replace the file in `observability/grafana/dashboards/`, commit, push.
 3. On the server: `git pull`, `make apply R=grafana`.
 
 **Change how long metrics are kept**
@@ -1134,12 +1134,12 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 
 **The local LLM**
 - Up, and its models: `make llm-status` — raw: `kubectl -n homelab exec deploy/caddy -c caddy -- wget -q -O - http://llm:8080/v1/models`
-- Loaded right now: `make llm-running` — raw: `LLM_GATEWAY_API_KEY=… python3 ai/llm/test.py running https://<HOMELAB_DOMAIN>:8090`
-- Ask: `make llm-ask [M=<model>] [Q="…"]` — raw: `LLM_GATEWAY_API_KEY=… python3 ai/llm/test.py ask https://<HOMELAB_DOMAIN>:8090 <model> "<question>"`
+- Loaded right now: `make llm-running` — raw: `LLM_GATEWAY_API_KEY=… python3 llm/llm/test.py running https://<HOMELAB_DOMAIN>:8090`
+- Ask: `make llm-ask [M=<model>] [Q="…"]` — raw: `LLM_GATEWAY_API_KEY=… python3 llm/llm/test.py ask https://<HOMELAB_DOMAIN>:8090 <model> "<question>"`
 - Model names: `make llm-models` — raw: `./scripts/download_models.sh --list`
 - Download before first use: `make llm-download MODELS="<model> …"` (or `MODELS=--all`) — raw: `./scripts/download_models.sh <model> …`
 - Stop it (frees its memory): `make llm-down` — raw: `kubectl -n homelab scale deploy/llm --replicas=0`; start it: `make llm-up` — raw: `kubectl -n homelab scale deploy/llm --replicas=1`
-- Change a model: `ai/llm/config.yml`, then `make apply R=llm`.
+- Change a model: `llm/llm/config.yml`, then `make apply R=llm`.
 - The API key for scripts: `kubectl -n homelab get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d; echo`
 
 **Update the MCP Inspector**
@@ -1169,25 +1169,31 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 6. In `helmfile.yaml.gotmpl`, a release in its group:
    ```yaml
      - name: <app>
-       namespace: homelab
+       inherit: [{ template: homelab }]
        chart: homelab/<app>
        version: {{ .Values.apps.<appName> }}
        labels: { group: apps }
-       values:
-         - environments/global.yaml.gotmpl
    ```
-7. A web page behind the sign-in: a route in `gateway/caddy/Caddyfile` ([gateway/caddy/README.md](gateway/caddy/README.md), Adding a route or a tool).
-8. Commit, push.
+7. `apps/<app>/values.yaml.gotmpl`: what this server adds (often nothing: copy `apps/homelab-ui/values.yaml.gotmpl`).
+8. A web page behind the sign-in: a route in `gateway/caddy/Caddyfile` ([gateway/caddy/README.md](gateway/caddy/README.md), Adding a route or a tool).
+9. Commit, push.
 
 **On the server**
-9. `git pull`, `make secrets` (if it reads Secrets), `make validate`, `make apply R=<app>`.
-10. `make status` → `Running`; `make logs R=<app>`.
+10. `git pull`, `make secrets` (if it reads Secrets), `make validate`, `make apply R=<app>`.
+11. `make status` → `Running`; `make logs R=<app>`.
 
 ## Troubleshooting
 
 **`make apply` stops at `secrets.sh check`**
 1. The line above names the Secret and key.
 2. `make secrets`, or `make secret-set SECRET=<secret> KEY=<key>` for a typed one.
+
+**`make apply` fails with `not ready` … `context deadline exceeded`**
+1. The releases after the failed one didn't run.
+2. `kubectl -n homelab get pods -l app.kubernetes.io/instance=<release> -o wide` → `Pending`, `CrashLoopBackOff` or `0/1 Running`.
+3. `kubectl -n homelab describe pod -l app.kubernetes.io/instance=<release> | tail -n 25` → the events: a port or volume it can't get, a failing probe.
+4. `kubectl -n homelab logs deploy/<release> --tail=40` (`statefulset/<release>` for a database) → its own error.
+5. Fix, commit, push; on the server `git pull`, `make sync R=<release>`, then `make apply`.
 
 **A pod is `CreateContainerConfigError`**
 1. `kubectl -n homelab describe pod <pod> | tail -n 20` → names the missing Secret or key.
@@ -1206,9 +1212,10 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 1. `kubectl -n homelab describe pod <pod> | tail -n 20`, or `helm show chart oci://ghcr.io/s-toufik/charts/<chart> --version <version>`.
 2. The version doesn't exist (check the app's Actions run and `environments/versions.yaml`), or the package isn't public ([Set up GitHub](#set-up-github), step 4).
 
-**The Caddy pod stays `Pending`** (`didn't have free ports`)
-1. Something else holds a gateway port: `sudo ss -tlnp | grep -E ':(443|8443|3000|9090)\b'`
-2. Stop it (e.g. an old Docker stack: [Install Kubernetes](#1-remove-docker-only-if-installed)).
+**A pod stays `Pending`** (`didn't have free ports`)
+1. `make validate` → `no two pods want the same server port`; otherwise it names the port and the releases: change one of them.
+2. Outside Kubernetes: `sudo ss -tlnp | grep -E ':(443|8443|3000|9090)\b'`, stop what holds it (e.g. an old Docker stack: [Install Kubernetes](#1-remove-docker-only-if-installed)).
+3. An old pod of another release may hold the port: `make sync R=<that release>` replaces it.
 
 **`https://<HOMELAB_DOMAIN>/` doesn't answer**
 1. `make status` → caddy `Running`?
@@ -1230,7 +1237,7 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 **A connection to or from agent-toolbox or the MCP Inspector times out**
 1. Their NetworkPolicy allows only what they need: `kubectl -n homelab get networkpolicy <release> -o yaml`.
 2. Expected: agent-toolbox ← agent-runtime, MCP Inspector, Caddy, tailnet devices; agent-toolbox → DNS, OTel Collector, internet. MCP Inspector ← Caddy; → DNS, agent-toolbox, internet.
-3. A new caller or target: add it in `ai/<release>/values.yaml.gotmpl`, then `make apply R=<release>`.
+3. A new caller or target: add it in `apps/agent-toolbox/values.yaml.gotmpl` or `llm/mcp-inspector/values.yaml.gotmpl`, then `make apply R=<release>`.
 
 **A Prometheus target is down** (`make verify`, `make targets`)
 1. `make logs R=<release>` and `make status`.
@@ -1299,7 +1306,7 @@ Deletes all data: databases, accounts, Secrets, volumes. The operators (`cnpg`, 
 | `make sh R=…` | `kubectl -n homelab exec -it <release's running pod> -- sh` |
 | `make psql` | `kubectl -n homelab exec -it <postgres primary pod> -c postgres -- psql -d homelab` |
 | `make mongosh` | `kubectl -n homelab exec -it mongodb-0 -- sh -c 'mongosh -u … -p … --authenticationDatabase admin'` |
-| `make migration-new NAME=…` | create `repository/postgres/migrations/<NNN>_<name>.sql` |
+| `make migration-new NAME=…` | create `repository/db-migrate/migrations/<NNN>_<name>.sql` |
 | `make migrate` | `helmfile -l name=db-migrate sync`, then `NOTIFY pgrst, 'reload schema'` in psql |
 | `make migrate-status` | `./scripts/dbmate.sh status` |
 | `make migrate-rollback` | `./scripts/dbmate.sh rollback` |

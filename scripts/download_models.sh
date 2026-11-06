@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Downloads llama-swap models ahead of their first use: asks the running llm release to load each
 # one (a one-token request through the gateway), which downloads it into its volume. Model names
-# and their `-hf <repo>:<quant>` come from ai/llm/config.yml. An on-demand model unloads by itself
+# and their `-hf <repo>:<quant>` come from llm/llm/config.yml. An on-demand model unloads by itself
 # after its ttl.
 source "$(dirname "$0")/_common.sh"
 require_cluster
 
-CONFIG_FILE="$ROOT_DIR/ai/llm/config.yml"
+CONFIG_FILE="$ROOT_DIR/llm/llm/config.yml"
 TIMEOUT_SECONDS=3600
 DOMAIN="$(local_value domain)"
 
@@ -14,7 +14,7 @@ usage() {
   cat <<EOF
 Usage:
   $(basename "$0") <model> [model...]   # download one or more models by name
-  $(basename "$0") --all                # download every model in ai/llm/config.yml
+  $(basename "$0") --all                # download every model in llm/llm/config.yml
   $(basename "$0") --list               # list available model names
 EOF
   exit 1

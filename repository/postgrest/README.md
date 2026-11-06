@@ -17,7 +17,7 @@ A REST API generated from PostgreSQL's `tasker` schema. homelab-ui's Tasker keep
 | `postgrest` | yes, Secret `pg-role-postgrest` | Nothing by itself; switches to `tasker_web` for each request |
 | `tasker_web` | no | Read and write its own rows of the `tasker` tables, nothing else |
 
-The roles are declared in [`repository/postgres/`](../postgres/README.md) (the PostgreSQL operator keeps them and their passwords); the schema, functions and policies come from its [migrations](../postgres/MIGRATIONS.md). PostgREST is deployed after the `db-migrate` release.
+The roles are declared in [`repository/postgres/`](../postgres/README.md) (the PostgreSQL operator keeps them and their passwords); the schema, functions and policies come from the [migrations](../db-migrate/README.md). PostgREST is deployed after the `db-migrate` release.
 
 ## Notes
 

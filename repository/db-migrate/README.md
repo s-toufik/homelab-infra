@@ -1,11 +1,10 @@
-# PostgreSQL migrations
+# db-migrate: PostgreSQL migrations
 
-Versioned SQL for the schemas the homelab owns (today: `tasker`, served by [PostgREST](../postgrest/README.md)), applied by [dbmate](https://github.com/amacneil/dbmate).
+Versioned SQL for the schemas the homelab owns (today: `tasker`, served by [PostgREST](../postgrest/README.md)), applied by [dbmate](https://github.com/amacneil/dbmate). The database itself, its roles and passwords are [repository/postgres](../postgres/README.md).
 
 ```text
-repository/postgres/
-├── values.yaml.gotmpl          the cluster, its roles (postgrest, tasker_web, keycloak) and the keycloak database
-├── migrate.values.yaml.gotmpl  the db-migrate release: every file below, applied by a dbmate job
+repository/db-migrate/
+├── values.yaml.gotmpl          the db-migrate release: every file below, applied by a dbmate job
 └── migrations/
     ├── 001_create_roles.sql              tasker_web (no login), postgrest (login, no superuser, no RLS bypass)
     ├── 002_create_schema_and_tables.sql  tasker.workflows, tasker.block_favorites, owner column, JSON checks

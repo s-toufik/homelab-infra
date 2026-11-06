@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Quick tests for the LLM server (llama-swap, one endpoint, models selected by name).
 
-  python3 ai/llm/test.py ask     <base_url> <model> "question"
-  python3 ai/llm/test.py tools   <base_url> <model>
-  python3 ai/llm/test.py running <base_url>
+  python3 llm/llm/test.py ask     <base_url> <model> "question"
+  python3 llm/llm/test.py tools   <base_url> <model>
+  python3 llm/llm/test.py running <base_url>
 
 Through the gateway (https://<HOMELAB_DOMAIN>:8090), set LLM_GATEWAY_API_KEY: it is sent as a
 Bearer token. The Makefile targets read it from the Kubernetes Secret llm-gateway.

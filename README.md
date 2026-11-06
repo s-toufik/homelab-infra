@@ -10,12 +10,12 @@ A complete platform for one home server, on Kubernetes: HTTPS and one sign-in in
   Browser ── HTTPS ──────┼─► GATEWAY ──► homelab-ui · Grafana · Prometheus · Kafka UI · …   │
   (Tailscale)            │   one sign-in   ──► MCP Inspector ────────────┐                  │
                          │                                               ▼                  │
-  Tailnet devices ───────┼─► AI       agent-runtime :8000 ─► agent-toolbox :8001            │
+  Tailnet devices ───────┼─► APPS     agent-runtime :8000 ─► agent-toolbox :8001            │
                          │           (LLM: NVIDIA's API or local)     (MCP tools)           │
                          │                                                                  │
   Your apps ─────────────┼─► REPOSITORY        PostgreSQL · MongoDB · PostgREST · backups   │
                          ├─► MESSAGE BROKER    Kafka                                        │
-                         ├─► AI                LLM server (OpenAI-compatible API)           │
+                         ├─► LLM               LLM server (OpenAI-compatible API)           │
                          └─► OBSERVABILITY     OTel Collector ──► Prometheus · Loki · Tempo │
                          │                                     └──► Grafana                 │
                          └──────────────────────────────────────────────────────────────────┘
@@ -23,28 +23,29 @@ A complete platform for one home server, on Kubernetes: HTTPS and one sign-in in
 
 ## What's inside
 
-Each group is a folder and a label of the release train ([`helmfile.yaml.gotmpl`](helmfile.yaml.gotmpl)); each release has its folder, with its `values.yaml.gotmpl` next to its own config files.
+Each group is a folder and a label of the release train ([`helmfile.yaml.gotmpl`](helmfile.yaml.gotmpl)); each release is the folder `<group>/<release>/`, with its `values.yaml.gotmpl` next to the config files it reads.
 
 | Group | Release | What it gives you |
 |---|---|---|
 | **platform** | CloudNativePG · Reloader | The PostgreSQL operator; restarts pods when a Secret they use changes |
-| **[repository/](repository)** | [PostgreSQL](repository/postgres/README.md) | Relational database for your projects, Tasker's data and the accounts, run by CloudNativePG; [versioned migrations](repository/postgres/MIGRATIONS.md) |
+| **[repository/](repository)** | [PostgreSQL](repository/postgres/README.md) | Relational database for your projects, Tasker's data and the accounts, run by CloudNativePG |
 | | [PostgREST](repository/postgrest/README.md) | REST API over the `tasker` schema, each account seeing only its own rows |
 | | [MongoDB](repository/mongodb/README.md) | Document database; the agent's conversations |
+| | [db-migrate](repository/db-migrate/README.md) | Applies the versioned SQL migrations of Tasker's schema (a job, no pod stays) |
 | | backups | Nightly dumps of PostgreSQL and MongoDB, outside the cluster, kept 14 days |
-| **[message_broker/](message_broker)** | [Kafka](message_broker/kafka/README.md) | Event streaming (KRaft, single node) |
-| | [Kafka UI](message_broker/kafka-ui/README.md) | Browse topics, messages and consumer groups |
-| **[observability/](observability)** | metrics: Prometheus, [kafka-exporter](observability/metrics/kafka-exporter/README.md), [mongodb-exporter](observability/metrics/mongodb-exporter/README.md) | Server, container, Kafka, database and LLM metrics |
-| | logs: Loki · traces: Tempo | Log and trace storage |
-| | collectors: OTel Collector, Alloy | Receive your apps' OTLP; collect the server's and every container's metrics and every pod's logs |
-| | dashboards: Grafana | Dashboards, log search and traces, all linked |
+| **[message-broker/](message-broker)** | [Kafka](message-broker/kafka/README.md) | Event streaming (KRaft, single node) |
+| | [Kafka UI](message-broker/kafka-ui/README.md) | Browse topics, messages and consumer groups |
+| **[observability/](observability)** | Prometheus · Loki · Tempo | Metrics, log and trace storage |
+| | OTel Collector · Alloy | Receive your apps' OTLP; collect the server's and every container's metrics and every pod's logs |
+| | [kafka-exporter](observability/kafka-exporter/README.md) · [mongodb-exporter](observability/mongodb-exporter/README.md) | Kafka and MongoDB metrics |
+| | Grafana | Dashboards, log search and traces, all linked |
 | **[gateway/](gateway)** | [Caddy](gateway/caddy/README.md) | HTTPS with a Tailscale certificate, one entry point for every web tool and API |
 | | [Keycloak](gateway/keycloak/README.md) | Accounts and the sign-in page: Argon2id password hashes, 90-day passwords, lockout; managed from the terminal only |
 | | oauth2-proxy | Answers Caddy's "is this browser signed in?" for every request |
-| **[ai/](ai)** | [LLM (llama-swap)](ai/llm/README.md) · llm-sd | Local models behind an OpenAI-compatible API, plus a playground |
+| **[llm/](llm)** | [LLM (llama-swap)](llm/llm/README.md) · llm-sd | Local models behind an OpenAI-compatible API, plus a playground; llm-sd tells Prometheus which models are loaded |
+| | [MCP Inspector](llm/mcp-inspector/README.md) | Lists and tries the toolbox's tools in the browser, behind the sign-in |
+| **[apps/](apps)** — yours, each from its own repository | homelab-ui | The front door: a **Status** page for every service, links to every tool, the agent chat and Tasker |
 | | agent-runtime · agent-toolbox | The homelab agent and its tools (files, Python sandbox), reachable from the tailnet only; the toolbox is fenced off from the databases |
-| | [MCP Inspector](ai/mcp-inspector/README.md) | Lists and tries the toolbox's tools in the browser, behind the sign-in |
-| **apps** | homelab-ui | The front door: a **Status** page for every service, links to every tool, the agent chat and Tasker |
 
 ## How it ships
 
@@ -89,7 +90,7 @@ DATA
   db-migrate job (dbmate) ─► PostgreSQL schema       CloudNativePG ─► roles, passwords, the keycloak database
   backups (every night)   ─► /var/backups/homelab on the server: PostgreSQL and MongoDB dumps
 
-AI — tailnet devices, homelab-ui and the MCP Inspector
+AGENT — tailnet devices, homelab-ui and the MCP Inspector
 
   tailnet device ─► <tailscale-ip>:8000 ─► agent-runtime
   tailnet device ─► <tailscale-ip>:8001 ─► agent-toolbox /mcp
@@ -171,22 +172,87 @@ Outside the sign-in, because their clients are programs, not browsers, and reach
 ```text
 homelab-infra/
 ├── helmfile.yaml.gotmpl   the release train: every release, its chart, its order
-├── environments/          versions.yaml (every version) · default.yaml (settings) · local.yaml (this server, make local)
+├── environments/
+│   ├── versions.yaml      every chart, image and app version: what the server runs
+│   ├── default.yaml       settings (timezone, LLM provider, retention, backup schedule)
+│   ├── global.yaml.gotmpl what every release gets as `global` (domain, hostIP, timezone)
+│   └── local.yaml         this server's Tailscale name and address (git-ignored, make local)
 ├── Makefile               every command (make help)
-├── devops_guide.md        how to operate it
-├── scripts/               local, secrets, validate, verify, users, dbmate, backups, download_models
-├── repository/            postgres (migrations/) · postgrest · mongodb · backups
-├── message_broker/        kafka · kafka-ui
-├── observability/
-│   ├── metrics/           prometheus · kafka-exporter · mongodb-exporter
-│   ├── logs/              loki
-│   ├── traces/            tempo
-│   ├── collectors/        otel-collector · alloy
-│   └── dashboards/        grafana (provisioning, dashboard JSON)
-├── gateway/               caddy (Caddyfile) · keycloak (sync.sh: realm as code) · oauth2-proxy
-├── ai/                    llm (llama-swap config.yml, llm-sd) · agent-runtime · agent-toolbox · mcp-inspector
-└── templates/             myapi-a: the template for a new Python API
+├── devops_guide.md        how to operate it, step by step
+├── scripts/               what the make commands run (below)
+│
+│   one folder per release: <group>/<release>/values.yaml.gotmpl + the files it reads
+├── repository/            postgres · db-migrate (migrations/) · postgrest · mongodb · backups
+├── message-broker/        kafka · kafka-ui
+├── observability/         prometheus · loki · tempo · otel-collector · alloy
+│                          kafka-exporter · mongodb-exporter · grafana (provisioning/, dashboards/)
+├── gateway/               caddy (Caddyfile) · keycloak (sync.sh: the realm as code) · oauth2-proxy
+├── llm/                   llm (config.yml: the models) · llm-sd · mcp-inspector
+├── apps/                  yours: homelab-ui · agent-runtime · agent-toolbox (this server's additions only)
+└── templates/             myapi-a: a starting point for a new Python API (not deployed)
 ```
+
+| Script | Run by | Does |
+|---|---|---|
+| `local.sh` | `make local` | writes `environments/local.yaml` from this machine's Tailscale name and address |
+| `secrets.sh` | `make secrets`, `secret-*`, every release's presync hook | creates, lists, sets, rotates and checks the Secrets (`SPECS`: every Secret and key) |
+| `validate.sh` | `make validate` | checks before a deploy: tools, cluster, firewall, Secrets, the train renders, no port clash, each config with its own tool |
+| `verify.sh` | `make verify` | checks after a deploy, group by group, on the running homelab |
+| `users.sh` | `make user-*`, `sessions-revoke` | sign-in accounts, with Keycloak's `kcadm.sh` run inside its pod |
+| `dbmate.sh` | `make migrate-status`, `migrate-rollback` | a one-off copy of the db-migrate job |
+| `backups.sh` | `make backup`, `backups`, `restore-*` | runs the nightly backup jobs now, lists and restores dumps |
+| `download_models.sh` | `make llm-download`, `llm-models` | loads models through the LLM's API so they download before first use |
+| `_common.sh` | every script | colours, `k` (kubectl in namespace homelab), reading `local.yaml`, the PostgreSQL primary, `kcadm` |
+
+## Find your way
+
+**One rule for files.** Release `<release>` of group `<group>` is configured by `<group>/<release>/values.yaml.gotmpl`; the config files next to it (a `Caddyfile`, `prometheus.yml`, dashboards…) are read into it with `readFile` and mounted into the pod. The `platform` releases (CloudNativePG, Reloader) are public charts used as they are, so they have no folder.
+
+**Where a setting comes from**, lowest first; each layer overrides the one before:
+
+1. kube-charts' `app` chart defaults — security, probes, volumes, what every pod gets.
+2. For homelab-ui, agent-runtime and agent-toolbox: their repository's `devops/helm/values.yml`, built into their chart at release.
+3. `environments/global.yaml.gotmpl` — `global.domain`, `global.hostIP`, `global.timezone`.
+4. `<group>/<release>/values.yaml.gotmpl` — this server's choices. It can read `environments/*.yaml` as `.Values` (versions, settings, `domain`).
+
+**What `make apply` does** (`helmfile apply`):
+
+1. Reads `environments/` and stops if `local.yaml` isn't this server's Tailscale name and address.
+2. Renders every release (its values, its config files) and compares it with what runs (`helm diff`); only the releases that changed go on.
+3. Deploys them in `needs:` order, independent ones in parallel. For each one: the presync hook checks its Secrets exist, `helm upgrade --install` applies it, then waits until its pods are ready and its jobs are done (10 minutes, the LLM 60), then the postsync hook runs (PostgreSQL: wait for the operator).
+4. A pod restarts when its config files change (a checksum on the pod) or a Secret it reads changes (Reloader). Nothing else restarts.
+5. If one release fails, the releases after it don't run: fix it, `make apply` again.
+
+**What is deployed right now.** `environments/versions.yaml` at the commit the server has pulled is the release train. `make releases` (`helm list -A`) shows each release's chart version and app version on the cluster; an empty `make diff` means the server runs exactly what git says.
+
+**Where things are on the server.**
+
+| What | Where |
+|---|---|
+| Every homelab pod, Service, Secret | Kubernetes namespace `homelab` (operators: `cnpg-system`, `reloader`) |
+| Volumes (databases, Prometheus, models…) | `/var/lib/rancher/k3s/storage/`, one folder per volume; kept when a release is uninstalled |
+| Secrets | Kubernetes Secrets, encrypted on disk by k3s; never in git |
+| Backups | `/var/backups/homelab/` (root only) |
+| k3s settings | `/etc/rancher/k3s/config.yaml`, `/etc/rancher/k3s/registries.yaml` (Docker Hub login) |
+| LAN firewall for Kubernetes' ports | `/etc/homelab/k3s-lan-guard.nft` |
+
+**To change… edit… then.**
+
+| To change | Edit | Then |
+|---|---|---|
+| A service's version | `environments/versions.yaml` (`images:`) | `make diff`, `make apply` |
+| An app's version (after its tag) | `environments/versions.yaml` (`apps:`) | `make apply R=<app>` |
+| How a service runs (env, resources, ports) | `<group>/<release>/values.yaml.gotmpl` | `make diff R=<release>`, `make apply R=<release>` |
+| How an app runs | its repository's `devops/helm/values.yml`, then a new tag | bump `apps:`, `make apply R=<app>` |
+| A web route or a published port | `gateway/caddy/Caddyfile` (and `ports:` in `gateway/caddy/values.yaml.gotmpl`) | `make apply R=caddy` |
+| The realm, password policy, sign-in clients | `gateway/keycloak/sync.sh` | `make apply R=keycloak` |
+| What Prometheus scrapes | `observability/prometheus/prometheus.yml`, or `metrics:` in a release's values | `make apply R=prometheus` (or that release) |
+| A dashboard | `observability/grafana/dashboards/*.json` | `make apply R=grafana` |
+| The local models | `llm/llm/config.yml` | `make apply R=llm` |
+| Tasker's schema | `make migration-new NAME=…`, then the new file in `repository/db-migrate/migrations/` | `make migrate` |
+| Retention, backup schedule, the agent's LLM provider | `environments/default.yaml` | `make apply` |
+| A new Secret | `SPECS` in `scripts/secrets.sh` | `make secrets` |
+| What every pod gets (security, probes, labels) | kube-charts `charts/app`, then a new chart version | `charts.app` in `versions.yaml`, `make apply` |
 
 ## Resources and retention
 

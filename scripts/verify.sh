@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks the running homelab after `make apply`, one section per release group (the groups of
 # helmfile.yaml.gotmpl, `make apply G=<group>`): platform, repository, message-broker,
-# observability, gateway, ai, apps. Changes nothing (test rows are rolled back).
+# observability, gateway, llm, apps. Changes nothing (test rows are rolled back).
 source "$(dirname "$0")/_common.sh"
 require_cluster
 
@@ -61,7 +61,7 @@ expect "keycloak and postgrest log in without superuser rights, tasker_web canno
   equals "$roles" "keycloak:100 postgrest:100 tasker_web:000"
 expect "the keycloak database exists" \
   equals "$(k get databases.postgresql.cnpg.io postgres-keycloak -o jsonpath='{.status.applied}' 2>/dev/null)" "true"
-files="$(ls repository/postgres/migrations/*.sql | wc -l | tr -d ' ')"
+files="$(ls repository/db-migrate/migrations/*.sql | wc -l | tr -d ' ')"
 applied="$(psql_homelab -c 'SELECT count(*) FROM public.schema_migrations' 2>/dev/null || true)"
 expect "every migration is applied ($applied of $files)" equals "$applied" "$files"
 rls="$(psql_homelab 2>&1 <<'SQL' || true
@@ -173,7 +173,15 @@ expect "passwords need 12 characters and differ from the last 5" contains "$real
 expect "repeated wrong passwords lock the account" contains "$realm" "brute_force=true"
 expect "nobody can register an account from the web" contains "$realm" "registration=false"
 
-echo "==> ai: LLM, agent-runtime, agent-toolbox, MCP Inspector"
+echo "==> llm: LLM, llm-sd, MCP Inspector"
+expect "the LLM serves qwen3-8b (always on)" contains "$(inside http://llm:8080/v1/models)" '"qwen3-8b"'
+expect "llm-sd lists the loaded models for Prometheus" contains "$(inside http://llm-sd:8000/targets)" '"qwen3-8b"'
+expect "the MCP Inspector reaches agent-toolbox" node_can_reach mcp-inspector agent-toolbox 8001
+expect "the MCP Inspector can't reach PostgreSQL" not node_can_reach mcp-inspector postgres-rw 5432
+
+echo "==> apps: homelab-ui, agent-runtime, agent-toolbox"
+expect "homelab-ui answers behind the gateway" contains "$(inside http://homelab-ui:8080/)" "<app-root"
+expect "homelab-ui sends signed-out visitors to the sign-in page" contains "$(redirect_to "$site/")" "/oauth2/sign_in"
 expect "agent-runtime answers on http://${domain}:8000" \
   equals "$(http_status "http://${domain}:8000/actuator/health")" "200"
 # The LLM provider agent-runtime is configured with (NVIDIA's API, or the local llm:8080)
@@ -190,14 +198,6 @@ expect "agent-toolbox can't reach PostgreSQL" not can_reach agent-toolbox postgr
 expect "agent-toolbox can't reach MongoDB" not can_reach agent-toolbox mongodb 27017
 expect "agent-toolbox can't reach Kafka" not can_reach agent-toolbox kafka 9092
 expect "agent-toolbox can't reach the server itself (its Kubernetes API)" not can_reach agent-toolbox 10.250.0.1 6443
-expect "the MCP Inspector reaches agent-toolbox" node_can_reach mcp-inspector agent-toolbox 8001
-expect "the MCP Inspector can't reach PostgreSQL" not node_can_reach mcp-inspector postgres-rw 5432
-expect "the LLM serves qwen3-8b (always on)" contains "$(inside http://llm:8080/v1/models)" '"qwen3-8b"'
-expect "llm-sd lists the loaded models for Prometheus" contains "$(inside http://llm-sd:8000/targets)" '"qwen3-8b"'
-
-echo "==> apps: homelab-ui"
-expect "homelab-ui answers behind the gateway" contains "$(inside http://homelab-ui:8080/)" "<app-root"
-expect "homelab-ui sends signed-out visitors to the sign-in page" contains "$(redirect_to "$site/")" "/oauth2/sign_in"
 
 echo
 if (( errors > 0 )); then red "$errors check(s) failed."; exit 1; fi

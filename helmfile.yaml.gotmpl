@@ -1,11 +1,12 @@
-# The release train: every release on the server, its chart and its version.
+# The release train: every release on the server, its chart, its version and its order.
 #   helmfile apply                     everything (only what changed is upgraded)
 #   helmfile -l name=homelab-ui apply  one release
 #   helmfile -l group=gateway apply    one group (platform, repository, message-broker, observability,
-#                                      gateway, ai, apps)
-# Versions live in environments/versions.yaml; the server's name and address in
-# environments/local.yaml (git-ignored, `make local`). Before a release that uses Secrets is
-# deployed, `scripts/secrets.sh check` makes sure they exist.
+#                                      gateway, llm, apps)
+# One rule: release <name> in group <group> takes its settings from <group>/<name>/values.yaml.gotmpl,
+# next to the config files it reads. Versions are in environments/versions.yaml, the server's
+# name and address in environments/local.yaml (git-ignored, `make local`). A release that reads
+# Secrets first checks they exist (presync hook, scripts/secrets.sh check).
 
 environments:
   default:
@@ -31,6 +32,17 @@ helmDefaults:
   timeout: 600
   createNamespace: true
 
+templates:
+  # A homelab release: kube-charts' app chart unless it says otherwise, the server's identity
+  # (environments/global.yaml.gotmpl), then its own settings
+  homelab:
+    namespace: homelab
+    chart: homelab/app
+    version: {{ .Values.charts.app }}
+    values:
+      - environments/global.yaml.gotmpl
+      - "{{`{{ .Release.Labels.group }}/{{ .Release.Name }}`}}/values.yaml.gotmpl"
+
 releases:
   # ---------- platform: operators every other release relies on ----------
   - name: reloader
@@ -47,265 +59,154 @@ releases:
 
   # ---------- repository: databases ----------
   - name: postgres
-    namespace: homelab
+    inherit: [{ template: homelab }]
     chart: homelab/pg-cluster
     version: {{ .Values.charts.pgCluster }}
     labels: { group: repository }
     needs: [cnpg-system/cnpg]
     # Its kinds (Cluster, Database) come from the cnpg release
     disableValidationOnInstall: true
-    values:
-      - environments/global.yaml.gotmpl
-      - repository/postgres/values.yaml.gotmpl
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-postgrest, pg-role-keycloak] }
       # Helm can't tell when a database is ready: wait for the operator to say so
       - { events: [postsync], showlogs: true, command: kubectl, args: [-n, homelab, wait, --for=condition=Ready, clusters.postgresql.cnpg.io/postgres, --timeout=10m] }
 
-  # Tasker's schema: applies the new files of repository/postgres/migrations (a job, no pod stays)
+  # Tasker's schema: applies the new files of repository/db-migrate/migrations (a job, no pod stays)
   - name: db-migrate
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: repository }
     needs: [homelab/postgres]
-    values:
-      - environments/global.yaml.gotmpl
-      - repository/postgres/migrate.values.yaml.gotmpl
 
   - name: postgrest
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: repository }
     needs: [homelab/db-migrate]
-    values:
-      - environments/global.yaml.gotmpl
-      - repository/postgrest/values.yaml.gotmpl
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-postgrest, tasker-gateway] }
 
   - name: mongodb
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: repository }
-    values:
-      - environments/global.yaml.gotmpl
-      - repository/mongodb/values.yaml.gotmpl
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, mongodb] }
 
   # Every night: PostgreSQL and MongoDB dumps into the server's /var/backups/homelab (cron jobs)
   - name: backups
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: repository }
     needs: [homelab/postgres, homelab/mongodb]
-    values:
-      - environments/global.yaml.gotmpl
-      - repository/backups/values.yaml.gotmpl
     hooks:
       - { events: [presync], showlogs: true, command: bash, args: [-c, '[ -d /var/backups/homelab ] || { echo "Missing /var/backups/homelab: sudo install -d -m 0700 /var/backups/homelab"; exit 1; }'] }
 
   # ---------- message-broker: event streaming ----------
   - name: kafka
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: message-broker }
-    values:
-      - environments/global.yaml.gotmpl
-      - message_broker/kafka/values.yaml.gotmpl
 
   - name: kafka-ui
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: message-broker }
     needs: [homelab/kafka]
-    values:
-      - environments/global.yaml.gotmpl
-      - message_broker/kafka-ui/values.yaml.gotmpl
 
   # ---------- observability: metrics, logs, traces, their collectors and dashboards ----------
-
   - name: prometheus
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: observability }
-    values:
-      - environments/global.yaml.gotmpl
-      - observability/metrics/prometheus/values.yaml.gotmpl
 
   - name: loki
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: observability }
-    values:
-      - environments/global.yaml.gotmpl
-      - observability/logs/loki/values.yaml.gotmpl
 
   - name: tempo
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: observability }
-    values:
-      - environments/global.yaml.gotmpl
-      - observability/traces/tempo/values.yaml.gotmpl
 
   - name: otel-collector
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: observability }
     needs: [homelab/prometheus, homelab/loki, homelab/tempo]
-    values:
-      - environments/global.yaml.gotmpl
-      - observability/collectors/otel-collector/values.yaml.gotmpl
 
   - name: alloy
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: observability }
     needs: [homelab/prometheus, homelab/loki]
-    values:
-      - environments/global.yaml.gotmpl
-      - observability/collectors/alloy/values.yaml.gotmpl
 
   - name: kafka-exporter
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: observability }
     needs: [homelab/kafka]
-    values:
-      - environments/global.yaml.gotmpl
-      - observability/metrics/kafka-exporter/values.yaml.gotmpl
 
   - name: mongodb-exporter
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: observability }
     needs: [homelab/mongodb]
-    values:
-      - environments/global.yaml.gotmpl
-      - observability/metrics/mongodb-exporter/values.yaml.gotmpl
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, mongodb] }
 
   - name: grafana
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: observability }
     needs: [homelab/prometheus, homelab/loki, homelab/tempo, homelab/keycloak]
-    values:
-      - environments/global.yaml.gotmpl
-      - observability/dashboards/grafana/values.yaml.gotmpl
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, grafana-admin, grafana-oidc] }
 
   # ---------- gateway: HTTPS and one sign-in for every web interface ----------
   - name: caddy
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: gateway }
-    values:
-      - environments/global.yaml.gotmpl
-      - gateway/caddy/values.yaml.gotmpl
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, tasker-gateway, llm-gateway] }
 
   - name: keycloak
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: gateway }
     needs: [homelab/postgres]
-    values:
-      - environments/global.yaml.gotmpl
-      - gateway/keycloak/values.yaml.gotmpl
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-keycloak, keycloak-admin, oauth2-proxy, grafana-oidc] }
 
   - name: oauth2-proxy
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
+    inherit: [{ template: homelab }]
     labels: { group: gateway }
     needs: [homelab/keycloak, homelab/caddy]
-    values:
-      - environments/global.yaml.gotmpl
-      - gateway/oauth2-proxy/values.yaml.gotmpl
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, oauth2-proxy] }
 
-  # ---------- ai: local models, the homelab agent and its tools ----------
+  # ---------- llm: local models and the tools around them ----------
   - name: llm
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
-    labels: { group: ai }
+    inherit: [{ template: homelab }]
+    labels: { group: llm }
     # The first start downloads qwen3-8b (several GB) before the pod is ready
     timeout: 3600
-    values:
-      - environments/global.yaml.gotmpl
-      - ai/llm/values.yaml.gotmpl
 
   - name: llm-sd
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
-    labels: { group: ai }
-    values:
-      - environments/global.yaml.gotmpl
-      - ai/llm/llm-sd.values.yaml.gotmpl
+    inherit: [{ template: homelab }]
+    labels: { group: llm }
 
-  # Released by their own repositories (chart = app + their devops/helm/values.yml)
-  - name: agent-toolbox
-    namespace: homelab
-    chart: homelab/agent-toolbox
-    version: {{ .Values.apps.agentToolbox }}
-    labels: { group: ai }
-    values:
-      - environments/global.yaml.gotmpl
-      - ai/agent-toolbox/values.yaml.gotmpl
-
-  - name: agent-runtime
-    namespace: homelab
-    chart: homelab/agent-runtime
-    version: {{ .Values.apps.agentRuntime }}
-    labels: { group: ai }
-    needs: [homelab/mongodb, homelab/agent-toolbox]
-    values:
-      - environments/global.yaml.gotmpl
-      - ai/agent-runtime/values.yaml.gotmpl
-    hooks:
-      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, agent-runtime, mongodb] }
-
+  # Lists and tries agent-toolbox's tools in the browser
   - name: mcp-inspector
-    namespace: homelab
-    chart: homelab/app
-    version: {{ .Values.charts.app }}
-    labels: { group: ai }
+    inherit: [{ template: homelab }]
+    labels: { group: llm }
     needs: [homelab/agent-toolbox]
-    values:
-      - environments/global.yaml.gotmpl
-      - ai/mcp-inspector/values.yaml.gotmpl
 
-  # ---------- apps: released by their own repositories (chart = app + its devops/helm/values.yml) ----------
+  # ---------- apps: yours, released by their own repositories ----------
+  # chart = kube-charts' app chart + the repository's devops/helm/values.yml, version = its git tag
   - name: homelab-ui
-    namespace: homelab
+    inherit: [{ template: homelab }]
     chart: homelab/homelab-ui
     version: {{ .Values.apps.homelabUi }}
     labels: { group: apps }
-    values:
-      - environments/global.yaml.gotmpl
+
+  - name: agent-toolbox
+    inherit: [{ template: homelab }]
+    chart: homelab/agent-toolbox
+    version: {{ .Values.apps.agentToolbox }}
+    labels: { group: apps }
+
+  - name: agent-runtime
+    inherit: [{ template: homelab }]
+    chart: homelab/agent-runtime
+    version: {{ .Values.apps.agentRuntime }}
+    labels: { group: apps }
+    needs: [homelab/mongodb, homelab/agent-toolbox]
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, agent-runtime, mongodb] }

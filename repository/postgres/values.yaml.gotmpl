@@ -1,6 +1,6 @@
 # PostgreSQL (kube-charts pg-cluster, run by CloudNativePG): database "homelab" and Keycloak's.
 # The operator keeps the roles below as declared and applies their passwords from the Secrets
-# (scripts/secrets.sh); the Tasker schema itself comes from repository/postgres/migrations.
+# (scripts/secrets.sh); the Tasker schema itself comes from repository/db-migrate/migrations.
 imageName: ghcr.io/cloudnative-pg/postgresql:{{ .Values.images.postgres }}
 
 storage:

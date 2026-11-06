@@ -93,15 +93,15 @@ else
   fail "gateway/caddy/Caddyfile:"; sed 's/^/      /' "${TMPDIR:-/tmp}/caddy-validate.log" >&2
 fi
 if bash -n gateway/keycloak/sync.sh; then ok "gateway/keycloak/sync.sh (syntax)"; else fail "gateway/keycloak/sync.sh has a syntax error"; fi
-if jq empty ai/mcp-inspector/servers.json 2>/dev/null; then ok "ai/mcp-inspector/servers.json (JSON)"; else fail "ai/mcp-inspector/servers.json is not valid JSON"; fi
-for f in observability/dashboards/grafana/dashboards/*.json; do
+if jq empty llm/mcp-inspector/servers.json 2>/dev/null; then ok "llm/mcp-inspector/servers.json (JSON)"; else fail "llm/mcp-inspector/servers.json is not valid JSON"; fi
+for f in observability/grafana/dashboards/*.json; do
   if jq empty "$f" 2>/dev/null; then ok "$f (JSON)"; else fail "$f is not valid JSON"; fi
 done
 if python3 -c 'import yaml' 2>/dev/null; then
-  if python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' ai/llm/config.yml 2>/dev/null; then
-    ok "ai/llm/config.yml (YAML)"
+  if python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' llm/llm/config.yml 2>/dev/null; then
+    ok "llm/llm/config.yml (YAML)"
   else
-    fail "ai/llm/config.yml is not valid YAML"
+    fail "llm/llm/config.yml is not valid YAML"
   fi
 fi
 
@@ -127,18 +127,18 @@ check_config() {
   fi
   k delete configmap "$name" >/dev/null
 }
-check_config "observability/metrics/prometheus/prometheus.yml (promtool)" "prom/prometheus:$(tag prometheus)" \
-  observability/metrics/prometheus/prometheus.yml /bin/promtool check config /check/prometheus.yml
-check_config "observability/logs/loki/config.yml (loki -verify-config)" "grafana/loki:$(tag loki)" \
-  observability/logs/loki/config.yml /usr/bin/loki -config.file=/check/config.yml -verify-config
-check_config "observability/collectors/otel-collector/config.yml (otelcol validate)" \
+check_config "observability/prometheus/prometheus.yml (promtool)" "prom/prometheus:$(tag prometheus)" \
+  observability/prometheus/prometheus.yml /bin/promtool check config /check/prometheus.yml
+check_config "observability/loki/config.yml (loki -verify-config)" "grafana/loki:$(tag loki)" \
+  observability/loki/config.yml /usr/bin/loki -config.file=/check/config.yml -verify-config
+check_config "observability/otel-collector/config.yml (otelcol validate)" \
   "otel/opentelemetry-collector-contrib:$(tag otelCollector)" \
-  observability/collectors/otel-collector/config.yml /otelcol-contrib validate --config=/check/config.yml
-check_config "observability/collectors/alloy/config.alloy (alloy fmt)" "grafana/alloy:$(tag alloy)" \
-  observability/collectors/alloy/config.alloy /bin/alloy fmt /check/config.alloy
+  observability/otel-collector/config.yml /otelcol-contrib validate --config=/check/config.yml
+check_config "observability/alloy/config.alloy (alloy fmt)" "grafana/alloy:$(tag alloy)" \
+  observability/alloy/config.alloy /bin/alloy fmt /check/config.alloy
 
 echo "==> Database migrations"
-for f in repository/postgres/migrations/*.sql; do
+for f in repository/db-migrate/migrations/*.sql; do
   if grep -q '^-- migrate:up' "$f" && grep -q '^-- migrate:down' "$f"; then ok "$f"
   else fail "$f needs both '-- migrate:up' and '-- migrate:down'"; fi
 done

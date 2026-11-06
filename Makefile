@@ -49,7 +49,7 @@ secret-rotate: ## Replace a generated value: make secret-rotate SECRET=tasker-ga
 	@./scripts/secrets.sh rotate "$(SECRET)" "$(KEY)"
 
 .PHONY: validate
-validate: ## Check tools, cluster, local.yaml, Secrets, that every release renders, the Caddyfile
+validate: ## Check before deploying: tools, cluster, firewall, Secrets, the train renders, ports, configs
 	@./scripts/validate.sh
 
 ##@ Deploy (helmfile)
@@ -103,7 +103,7 @@ top: ## CPU and memory per pod
 	@kubectl -n $(NS) top pods
 
 .PHONY: verify
-verify: ## Check pods, HTTPS, sign-in, password policy, database roles, published ports
+verify: ## Check the running homelab, group by group (pods, HTTPS, sign-in, data, telemetry, LLM, backups)
 	@./scripts/verify.sh
 
 ##@ Users (sign-in accounts, managed only from this terminal)
@@ -146,9 +146,9 @@ psql: ## psql into PostgreSQL (database homelab, as postgres)
 mongosh: ## mongosh into MongoDB as root
 	@kubectl -n $(NS) exec -it mongodb-0 -- sh -c 'mongosh -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin'
 
-##@ Database migrations (repository/postgres/migrations)
+##@ Database migrations (repository/db-migrate/migrations)
 
-MIGRATIONS_DIR := repository/postgres/migrations
+MIGRATIONS_DIR := repository/db-migrate/migrations
 NAME ?=
 PRIMARY = $$(kubectl -n $(NS) get pod -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o name | head -n1)
 
@@ -204,13 +204,13 @@ targets: ## Prometheus scrape targets and their state
 
 ##@ LLM (llama-swap)
 
-# M = model name (see ai/llm/config.yml), Q = question, for llm-ask; MODELS for llm-download
+# M = model name (see llm/llm/config.yml), Q = question, for llm-ask; MODELS for llm-download
 M ?= qwen3-8b
 MODELS ?=
 Q ?= What is Apache Kafka? Answer in two sentences.
-# ai/llm/test.py goes through the gateway with the LLM API key, read from its Secret
+# llm/llm/test.py goes through the gateway with the LLM API key, read from its Secret
 LLM_TEST = LLM_GATEWAY_API_KEY="$$(kubectl -n $(NS) get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d)" \
-  python3 ai/llm/test.py
+  python3 llm/llm/test.py
 DOMAIN = $$(awk '$$1 == "domain:" { print $$2 }' environments/local.yaml)
 
 .PHONY: llm-status llm-running llm-ask llm-models llm-download llm-down llm-up
@@ -220,7 +220,7 @@ llm-running: ## Which models are loaded right now (UP) and which aren't (DOWN)
 	@$(LLM_TEST) running "https://$(DOMAIN):8090"
 llm-ask: ## Ask a question: make llm-ask [M=<model>] [Q="..."]
 	@$(LLM_TEST) ask "https://$(DOMAIN):8090" "$(M)" "$(Q)"
-llm-models: ## The models ai/llm/config.yml defines
+llm-models: ## The models llm/llm/config.yml defines
 	@./scripts/download_models.sh --list
 llm-download: ## Download models before their first use: make llm-download MODELS="qwen3-14b qwen3.5-2b" (or MODELS=--all)
 	@[ -n "$(MODELS)" ] || { echo 'Usage: make llm-download MODELS="<model> …" (or MODELS=--all; names: make llm-models)'; exit 1; }
