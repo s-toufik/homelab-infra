@@ -1,13 +1,3 @@
-# The release train: every release on the server, its chart, its version and its order.
-#   helmfile apply                     everything (only what changed is upgraded)
-#   helmfile -l name=homelab-ui apply  one release
-#   helmfile -l group=gateway apply    one group (platform, repository, message-broker, observability,
-#                                      gateway, llm, apps)
-# One rule: release <name> in group <group> takes its settings from <group>/<name>/values.yaml.gotmpl,
-# next to the config files it reads. Versions are in environments/versions.yaml, the server's
-# name and address in environments/local.yaml (git-ignored, `make local`). A release that reads
-# Secrets first checks they exist (presync hook, scripts/secrets.sh check).
-
 environments:
   default:
     values:
@@ -33,8 +23,6 @@ helmDefaults:
   createNamespace: true
 
 templates:
-  # A homelab release: kube-charts' app chart unless it says otherwise, the server's identity
-  # (environments/global.yaml.gotmpl), then its own settings
   homelab:
     namespace: homelab
     chart: homelab/app
@@ -44,7 +32,6 @@ templates:
       - "{{`{{ .Release.Labels.group }}/{{ .Release.Name }}`}}/values.yaml.gotmpl"
 
 releases:
-  # ---------- platform: operators every other release relies on ----------
   - name: reloader
     namespace: reloader
     chart: stakater/reloader
@@ -57,21 +44,17 @@ releases:
     version: {{ .Values.charts.cloudnativePg }}
     labels: { group: platform }
 
-  # ---------- repository: databases ----------
   - name: postgres
     inherit: [{ template: homelab }]
     chart: homelab/pg-cluster
     version: {{ .Values.charts.pgCluster }}
     labels: { group: repository }
     needs: [cnpg-system/cnpg]
-    # Its kinds (Cluster, Database) come from the cnpg release
     disableValidationOnInstall: true
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-postgrest, pg-role-keycloak] }
-      # Helm can't tell when a database is ready: wait for the operator to say so
       - { events: [postsync], showlogs: true, command: kubectl, args: [-n, homelab, wait, --for=condition=Ready, clusters.postgresql.cnpg.io/postgres, --timeout=10m] }
 
-  # Tasker's schema: applies the new files of repository/db-migrate/migrations (a job, no pod stays)
   - name: db-migrate
     inherit: [{ template: homelab }]
     labels: { group: repository }
@@ -90,7 +73,6 @@ releases:
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, mongodb] }
 
-  # Every night: PostgreSQL and MongoDB dumps into the server's /var/backups/homelab (cron jobs)
   - name: backups
     inherit: [{ template: homelab }]
     labels: { group: repository }
@@ -98,7 +80,6 @@ releases:
     hooks:
       - { events: [presync], showlogs: true, command: bash, args: [-c, '[ -d /var/backups/homelab ] || { echo "Missing /var/backups/homelab: sudo install -d -m 0700 /var/backups/homelab"; exit 1; }'] }
 
-  # ---------- message-broker: event streaming ----------
   - name: kafka
     inherit: [{ template: homelab }]
     labels: { group: message-broker }
@@ -108,7 +89,6 @@ releases:
     labels: { group: message-broker }
     needs: [homelab/kafka]
 
-  # ---------- observability: metrics, logs, traces, their collectors and dashboards ----------
   - name: prometheus
     inherit: [{ template: homelab }]
     labels: { group: observability }
@@ -150,7 +130,6 @@ releases:
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, grafana-admin, grafana-oidc] }
 
-  # ---------- gateway: HTTPS and one sign-in for every web interface ----------
   - name: caddy
     inherit: [{ template: homelab }]
     labels: { group: gateway }
@@ -171,25 +150,20 @@ releases:
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, oauth2-proxy] }
 
-  # ---------- llm: local models and the tools around them ----------
   - name: llm
     inherit: [{ template: homelab }]
     labels: { group: llm }
-    # The first start downloads qwen3-8b (several GB) before the pod is ready
     timeout: 3600
 
   - name: llm-sd
     inherit: [{ template: homelab }]
     labels: { group: llm }
 
-  # Lists and tries agent-toolbox's tools in the browser
   - name: mcp-inspector
     inherit: [{ template: homelab }]
     labels: { group: llm }
     needs: [homelab/agent-toolbox]
 
-  # ---------- apps: yours, released by their own repositories ----------
-  # chart = kube-charts' app chart + the repository's devops/helm/values.yml, version = its git tag
   - name: homelab-ui
     inherit: [{ template: homelab }]
     chart: homelab/homelab-ui

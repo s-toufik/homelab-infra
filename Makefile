@@ -1,21 +1,14 @@
-# homelab-infra — deploy and run the homelab on Kubernetes (k3s, Helm, helmfile)
-# Usage: make <target> [R=<release>] [G=<group>]   e.g.  make apply R=caddy  |  make logs R=keycloak
-# Run `make` or `make help` to list targets. The DevOps guide shows the raw command behind each one.
-
 SHELL        := bash
 .SHELLFLAGS  := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 MAKEFLAGS    += --no-print-directory
 
 NS := homelab
-# One release (R=caddy) or one group (G=gateway) for helmfile targets; everything by default
 R ?=
 G ?=
 SELECT := $(if $(R),-l name=$(R),$(if $(G),-l group=$(G),))
 TAIL ?= 200
-# Sign-in account for the user-* targets (not USER, which make inherits from your shell)
 ACCOUNT ?=
-# secret-set / secret-rotate: SECRET=<name> KEY=<key>
 SECRET ?=
 KEY ?=
 
@@ -39,6 +32,10 @@ secrets: ## Create every missing password and key as a Kubernetes Secret
 .PHONY: secrets-list
 secrets-list: ## List the Secrets and their keys (no values)
 	@./scripts/secrets.sh list
+
+.PHONY: show-secrets
+show-secrets: ## Show every password and key, with its value (yours to keep out of git and chats)
+	@./scripts/secrets.sh show
 
 .PHONY: secret-set
 secret-set: ## Type a value yourself: make secret-set SECRET=agent-runtime KEY=llm-api-key
@@ -86,7 +83,6 @@ status: ## Pods, their state and restarts (also: make ps)
 	@kubectl -n $(NS) get pods -o wide
 ps: status
 
-# PostgreSQL's pods are labelled by its operator, the others by Helm
 PODS_OF = $(if $(filter postgres,$(R)),cnpg.io/cluster=postgres,app.kubernetes.io/instance=$(R))
 
 .PHONY: logs
@@ -194,7 +190,6 @@ groups: ## Consumer groups with lag
 
 ##@ Observability
 
-# Fetches a URL from inside the cluster, through the caddy pod
 INSIDE := kubectl -n $(NS) exec deploy/caddy -c caddy -- wget -q -T 10 -O -
 
 .PHONY: targets
@@ -204,11 +199,9 @@ targets: ## Prometheus scrape targets and their state
 
 ##@ LLM (llama-swap)
 
-# M = model name (see llm/llm/config.yml), Q = question, for llm-ask; MODELS for llm-download
 M ?= qwen3-8b
 MODELS ?=
 Q ?= What is Apache Kafka? Answer in two sentences.
-# llm/llm/test.py goes through the gateway with the LLM API key, read from its Secret
 LLM_TEST = LLM_GATEWAY_API_KEY="$$(kubectl -n $(NS) get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d)" \
   python3 llm/llm/test.py
 DOMAIN = $$(awk '$$1 == "domain:" { print $$2 }' environments/local.yaml)

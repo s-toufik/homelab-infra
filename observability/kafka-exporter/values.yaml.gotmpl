@@ -1,13 +1,11 @@
-# kafka-exporter: Kafka's topics, partitions and consumer-group lag, for Prometheus. Its page is
-# served by the gateway on :9308 (signed in).
 image:
   repository: danielqsj/kafka-exporter
   tag: {{ .Values.images.kafkaExporter | quote }}
 
 args:
   - --kafka.server=kafka:9092
-  - --kafka.version=3.6.0     # protocol version sent by the client; Kafka 4.x rejects very old ones
-  - --topic.filter=^[^_].*    # skip internal topics (__consumer_offsets, ...)
+  - --kafka.version=3.6.0
+  - --topic.filter=^[^_].*
   - --log.level=warn
 
 ports:

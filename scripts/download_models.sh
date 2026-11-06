@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Downloads llama-swap models ahead of their first use: asks the running llm release to load each
-# one (a one-token request through the gateway), which downloads it into its volume. Model names
-# and their `-hf <repo>:<quant>` come from llm/llm/config.yml. An on-demand model unloads by itself
-# after its ttl.
 source "$(dirname "$0")/_common.sh"
 require_cluster
 
@@ -13,9 +9,9 @@ DOMAIN="$(local_value domain)"
 usage() {
   cat <<EOF
 Usage:
-  $(basename "$0") <model> [model...]   # download one or more models by name
-  $(basename "$0") --all                # download every model in llm/llm/config.yml
-  $(basename "$0") --list               # list available model names
+  $(basename "$0") <model> [model...]   download one or more models by name
+  $(basename "$0") --all                download every model in llm/llm/config.yml
+  $(basename "$0") --list               list available model names
 EOF
   exit 1
 }
@@ -51,7 +47,6 @@ download_one() {
 
   echo "==> $model ($spec): downloading if needed, then loading (follow it: make logs R=llm)"
   started=$SECONDS
-  # The gateway's API key goes to curl on stdin, never on a command line
   if printf 'header = "Authorization: Bearer %s"\n' "$API_KEY" |
     curl -fsS -o /dev/null --max-time "$TIMEOUT_SECONDS" -K - \
       -H 'Content-Type: application/json' \

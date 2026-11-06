@@ -1,6 +1,3 @@
-# Prometheus: every metric — pods that ask to be scraped (./prometheus.yml), the server's and
-# containers' metrics pushed by Alloy, app metrics from the OTel Collector, span metrics from Tempo.
-# Served by the gateway on :9090 (signed in) and to homelab-ui at /api/prometheus/.
 kind: StatefulSet
 
 image:
@@ -12,9 +9,9 @@ args:
   - --storage.tsdb.path=/prometheus
   - --storage.tsdb.retention.time={{ .Values.prometheus.retentionTime }}
   - --storage.tsdb.retention.size={{ .Values.prometheus.retentionSize }}
-  - --web.enable-remote-write-receiver   # Alloy + Tempo's metrics generator push here
-  - --web.enable-otlp-receiver           # the OTel Collector pushes app metrics here
-  - --enable-feature=exemplar-storage    # metrics -> traces links in Grafana
+  - --web.enable-remote-write-receiver
+  - --web.enable-otlp-receiver
+  - --enable-feature=exemplar-storage
 
 ports:
   - { name: http, port: 9090 }
@@ -48,14 +45,12 @@ configFiles:
       prometheus.yml: |
         {{- readFile "prometheus.yml" | nindent 8 }}
 
-# Finds the pods to scrape in namespace homelab
 rbac:
   rules:
     - apiGroups: [""]
       resources: [pods]
       verbs: [get, list, watch]
 
-# The image's nobody user
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 65534

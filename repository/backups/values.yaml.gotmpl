@@ -1,7 +1,3 @@
-# backups: every night, a dump of PostgreSQL (databases homelab and keycloak) and of MongoDB into
-# the server's /var/backups/homelab (root only), kept {{ .Values.backups.keepDays }} days. Outside Kubernetes on
-# purpose: a reset of the homelab leaves them, and they are plain files to copy elsewhere.
-# No pod keeps running.
 kind: None
 
 image:
@@ -35,7 +31,6 @@ cronJobs:
       - { name: backups, hostPath: { path: /var/backups/homelab, type: Directory } }
     volumeMounts:
       - { name: backups, mountPath: /backups }
-    # Root, to write into the root-only folder; no capability, no privilege escalation
     securityContext:
       runAsUser: 0
       runAsGroup: 0
@@ -55,7 +50,6 @@ cronJobs:
         set -euo pipefail
         dir=/backups/mongodb stamp="$(date +%F_%H%M)"
         mkdir -p "$dir"
-        # The password goes in a file, not on the command line
         printf 'password: "%s"\n' "$MONGO_PASSWORD" >/tmp/mongodump.yml
         mongodump --host=mongodb --username="$MONGO_USER" --authenticationDatabase=admin \
           --config=/tmp/mongodump.yml --archive="$dir/mongodb_$stamp.archive.tmp" --gzip --quiet

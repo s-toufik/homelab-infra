@@ -2,7 +2,6 @@
 	auto_https disable_redirects
 }
 
-# Identity headers are set only by the gateway, never by the browser.
 (strip_identity) {
 	request_header -Remote-User
 	request_header -Remote-Email
@@ -14,7 +13,6 @@
 	request_header -X-Auth-Request-Access-Token
 }
 
-# Pages: signed-out visitors go to the sign-in page, then come back to the same address.
 (signed_in_page) {
 	forward_auth oauth2-proxy:4180 {
 		uri /oauth2/auth
@@ -28,7 +26,6 @@
 	}
 }
 
-# APIs: signed-out calls get 401 instead of a redirect.
 (signed_in_api) {
 	forward_auth oauth2-proxy:4180 {
 		uri /oauth2/auth
@@ -42,8 +39,6 @@
 	}
 }
 
-# Health route: /api/health/<name> → the container's own readiness endpoint (inside /api/*, so
-# signed in). Arguments: name, upstream host:port, health path.
 (health_route) {
 	handle /api/health/{args[0]} {
 		rewrite * {args[2]}
@@ -53,7 +48,6 @@
 	}
 }
 
-# A tool behind the sign-in, on its usual port. Browser cookies (the session) are not passed on.
 (signed_in_tool) {
 	route {
 		import strip_identity
@@ -64,12 +58,10 @@
 	}
 }
 
-# homelab-ui, the APIs it calls, and the sign-in endpoints
 {$HOMELAB_DOMAIN} {
 	route {
 		import strip_identity
 
-		# Answered by Caddy itself: proves HTTPS and the certificate work, reveals nothing.
 		handle /healthz {
 			respond "OK" 200
 		}
@@ -108,7 +100,6 @@
 				}
 			}
 
-			# Readiness of every container, for homelab-ui's Status page: /api/health/<name>
 			handle /api/health/caddy {
 				respond "OK" 200
 			}
@@ -128,7 +119,6 @@
 			import health_route llm llm:8080 /health
 			import health_route llm-sd llm-sd:8000 /targets
 			import health_route agent-runtime agent-runtime:8000 /actuator/health/readiness
-			# agent-toolbox and the MCP Inspector only answer requests addressed to their own host name
 			handle /api/health/agent-toolbox {
 				rewrite * /actuator/health
 				reverse_proxy agent-toolbox:8001 {
@@ -156,7 +146,6 @@
 	}
 }
 
-# Keycloak: login, password change and sign-out pages. Accounts are managed from the terminal.
 {$HOMELAB_DOMAIN}:8443 {
 	@admin path /admin /admin/*
 	respond @admin "Not available" 403
@@ -164,7 +153,6 @@
 	reverse_proxy keycloak:8080
 }
 
-# Grafana signs in with Keycloak itself (single sign-on, roles from Keycloak).
 {$HOMELAB_DOMAIN}:3000 {
 	route {
 		import strip_identity
@@ -172,7 +160,6 @@
 	}
 }
 
-# Prometheus: the lifecycle endpoints stay off the network (use `make reload-prometheus`).
 {$HOMELAB_DOMAIN}:9090 {
 	route {
 		import strip_identity
@@ -205,8 +192,6 @@
 	import signed_in_tool kafka-exporter:9308
 }
 
-# MCP Inspector: agent-toolbox's tools in the browser. It checks the Host header against its own name,
-# and the browser's Origin against https://<HOMELAB_DOMAIN>:6274 (ALLOWED_ORIGINS).
 {$HOMELAB_DOMAIN}:6274 {
 	route {
 		import strip_identity
@@ -219,7 +204,6 @@
 	}
 }
 
-# LLM: the playground needs a sign-in; scripts and OpenAI clients use the API key instead.
 {$HOMELAB_DOMAIN}:8090 {
 	@api_key header Authorization "Bearer {$LLM_GATEWAY_API_KEY}"
 

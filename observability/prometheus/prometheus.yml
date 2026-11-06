@@ -4,7 +4,6 @@ global:
   external_labels:
     cluster: homelab
 
-# OTLP ingestion (app metrics coming from the OTel Collector)
 otlp:
   promote_resource_attributes:
     - service.instance.id
@@ -21,9 +20,6 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  # Every pod in namespace homelab annotated prometheus.io/scrape: "true" (the charts' `metrics:`),
-  # on its prometheus.io/port and prometheus.io/path. job = the pod's app.kubernetes.io/name
-  # (loki, grafana, kafka-exporter…), or postgres for the PostgreSQL operator's pods.
   - job_name: pods
     kubernetes_sd_configs:
       - role: pod
@@ -54,8 +50,6 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_pod_name]
         target_label: pod
 
-  # llama-swap: the always-on model, plus each on-demand model while it is loaded (llm-sd lists
-  # them; scraping an unloaded one would load it)
   - job_name: llama-cpp
     static_configs:
       - targets: ["llm:8080"]

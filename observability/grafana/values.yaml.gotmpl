@@ -1,6 +1,3 @@
-# Grafana: dashboards and Explore over Prometheus, Loki and Tempo, at https://<domain>:3000
-# through the gateway. Signs in with Keycloak itself (realm role admin → Grafana Admin); the local
-# admin (Secret grafana-admin) is for emergencies, at /login?disableAutoLogin.
 image:
   repository: grafana/grafana
   tag: {{ .Values.images.grafana | quote }}
@@ -78,7 +75,6 @@ configFiles:
         {{- readFile $path | nindent 8 }}
 {{- end }}
 
-# The image's grafana user
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 472

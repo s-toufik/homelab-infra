@@ -1,20 +1,13 @@
-# Grafana Alloy: the server's metrics (CPU, memory, disks, network, temperatures), every
-# container's metrics (the kubelet's cAdvisor) and the pods' logs (./config.alloy). Its UI is
-# served by the gateway on :12345 (signed in).
 image:
   repository: grafana/alloy
   tag: {{ .Values.images.alloy | quote }}
 
 args:
   - run
-  # The server's node address only (it uses the server's network): never the home network.
-  # 12346, not Alloy's usual 12345: a pod on the server's network reserves its ports on every
-  # server address, and the gateway already publishes 12345 (the scheduler would never start it)
   - --server.http.listen-addr=10.250.0.1:12346
   - --storage.path=/var/lib/alloy/data
   - /etc/alloy/config.alloy
 
-# The server's network, so its network metrics are the server's, not a pod's
 hostNetwork: true
 
 ports:
@@ -48,7 +41,6 @@ configFiles:
       config.alloy: |
         {{- readFile "config.alloy" | nindent 8 }}
 
-# Reads the server's files, never writes them
 extraVolumes:
   - { name: host-root, hostPath: { path: / } }
   - { name: host-proc, hostPath: { path: /proc } }
@@ -60,7 +52,6 @@ extraVolumeMounts:
   - { name: host-sys, mountPath: /host/sys, readOnly: true }
   - { name: tmp, mountPath: /tmp }
 
-# Container metrics through the Kubernetes API (the node's cAdvisor), and the pods' logs
 rbac:
   rules:
     - apiGroups: [""]
@@ -74,8 +65,6 @@ rbac:
       resources: [nodes/proxy, nodes/metrics]
       verbs: [get]
 
-# The image's alloy user: only it may enter /var/lib/alloy. The server's files it reads are
-# readable by everyone.
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 473

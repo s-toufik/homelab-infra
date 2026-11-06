@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Checks before deploying: tools, cluster, environments/local.yaml, Secrets, the release train
-# (every release renders) and each tool's own config validator. Changes nothing.
 source "$(dirname "$0")/_common.sh"
 
 errors=0
@@ -12,7 +10,6 @@ for tool in kubectl helm helmfile tailscale jq openssl; do
   if command -v "$tool" >/dev/null; then ok "$tool"; else fail "$tool not found (DevOps guide, Install Kubernetes)"; fi
 done
 if helm plugin list 2>/dev/null | grep -q '^diff'; then ok "helm diff plugin"; else fail "helm diff plugin missing (DevOps guide, Install Kubernetes)"; fi
-# Helm reads Docker's login settings: a credential helper named there must exist, or every chart pull fails
 docker_config="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
 store="$(jq -r '.credsStore // empty' "$docker_config" 2>/dev/null || true)"
 if [[ -n "$store" ]] && ! command -v "docker-credential-$store" >/dev/null; then
@@ -46,7 +43,6 @@ if [[ -d /var/backups/homelab ]]; then ok "/var/backups/homelab exists (the nigh
 else fail "/var/backups/homelab is missing: sudo install -d -m 0700 /var/backups/homelab"; fi
 
 echo "==> Secrets"
-# The Secrets the releases in helmfile.yaml.gotmpl use (each release checks its own before deploying)
 used=()
 while IFS= read -r name; do used+=("$name"); done < <(
   grep -o 'args: \[check, [^]]*\]' helmfile.yaml.gotmpl | sed 's/.*check, //; s/\]//' | tr ',' '\n' | tr -d ' ' | sort -u)
@@ -56,9 +52,6 @@ echo "==> Release train"
 rendered="${TMPDIR:-/tmp}/helmfile-validate.yaml"
 if helmfile template >"$rendered" 2>"${TMPDIR:-/tmp}/helmfile-validate.log"; then
   ok "every release renders (helmfile template)"
-  # A host port, or a port of a pod on the server's network, is held by one pod at a time: a second
-  # pod wanting it is never started. Only the workloads go to kubectl (it can't read objects whose
-  # operator isn't installed yet).
   awk 'function flush() { if (doc ~ /(^|\n)kind: (Deployment|StatefulSet|DaemonSet)\n/) printf "---\n%s", doc; doc = "" }
        /^---/ { flush(); next } { doc = doc $0 "\n" } END { flush() }' "$rendered" >"$rendered.workloads"
   if objects="$(kubectl create --dry-run=client -o json -f "$rendered.workloads" 2>"${TMPDIR:-/tmp}/helmfile-validate.log")"; then
@@ -82,8 +75,6 @@ rm -f "$rendered" "$rendered.workloads"
 
 echo "==> Configs"
 tag() { awk -v name="$1" '$1 == name ":" { print $2 }' environments/versions.yaml; }
-# A throwaway pod runs `caddy validate` on the Caddyfile, sent on stdin; the secrets it reads are
-# replaced by placeholders.
 if k run "caddy-validate-$$" --rm -i --quiet --restart=Never --image="caddy:$(tag caddy)" \
   --env="HOMELAB_DOMAIN=$domain" --env=TASKER_GATEWAY_SECRET=placeholder --env=LLM_GATEWAY_API_KEY=placeholder \
   --command -- sh -c 'cat >/tmp/Caddyfile && caddy validate --config /tmp/Caddyfile --adapter caddyfile' \
@@ -105,8 +96,6 @@ if python3 -c 'import yaml' 2>/dev/null; then
   fi
 fi
 
-# Runs a tool's own config check in a throwaway pod, the config file mounted from a throwaway
-# ConfigMap at /check/<file name>: description, image, file, command...
 check_config() {
   local description="$1" image="$2" file="$3"; shift 3
   local name="validate-$$-$RANDOM" overrides out

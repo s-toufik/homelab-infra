@@ -196,7 +196,7 @@ homelab-infra/
 | Script | Run by | Does |
 |---|---|---|
 | `local.sh` | `make local` | writes `environments/local.yaml` from this machine's Tailscale name and address |
-| `secrets.sh` | `make secrets`, `secret-*`, every release's presync hook | creates, lists, sets, rotates and checks the Secrets (`SPECS`: every Secret and key) |
+| `secrets.sh` | `make secrets`, `secret-*`, `show-secrets`, every release's presync hook | creates, lists, shows, sets, rotates and checks the Secrets (`SPECS`: every Secret and key) |
 | `validate.sh` | `make validate` | checks before a deploy: tools, cluster, firewall, Secrets, the train renders, no port clash, each config with its own tool |
 | `verify.sh` | `make verify` | checks after a deploy, group by group, on the running homelab |
 | `users.sh` | `make user-*`, `sessions-revoke` | sign-in accounts, with Keycloak's `kcadm.sh` run inside its pod |

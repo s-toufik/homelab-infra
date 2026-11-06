@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Sign-in accounts (Keycloak realm "homelab"), managed from the server's terminal only.
-#   ./scripts/users.sh add|password|disable|enable|unlock|admin|unadmin|remove <account>
-#   ./scripts/users.sh list
-#   ./scripts/users.sh logout-all
 source "$(dirname "$0")/_common.sh"
 require_cluster
 
@@ -46,8 +42,6 @@ user_id() {
   printf '%s' "$id"
 }
 
-# The new password travels on stdin, so it never appears in a process list or in shell history;
-# the admin password is read inside the keycloak pod (see kcadm in _common.sh).
 set_password() {
   ask_password
   printf '%s\n' "$NEW_PASSWORD" |

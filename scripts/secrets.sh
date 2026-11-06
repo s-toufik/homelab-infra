@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
-# The homelab's passwords and keys, as Kubernetes Secrets in namespace homelab (encrypted on disk
-# by k3s). Values are generated here or typed at a hidden prompt: never in git, never on a
-# command line.
-#   ./scripts/secrets.sh                        create what is missing (safe to re-run)
-#   ./scripts/secrets.sh check [secret…]        exit 1 if a Secret or key is missing (helmfile runs it
-#                                               before each release, with the Secrets it uses)
-#   ./scripts/secrets.sh list                   Secrets and their keys, without values
-#   ./scripts/secrets.sh set <secret> <key>     type a value yourself (e.g. agent-runtime llm-api-key)
-#   ./scripts/secrets.sh rotate <secret> <key>  replace a generated value; the pods using it restart
 source "$(dirname "$0")/_common.sh"
 
-# secret|type|keys — key:N = N random bytes (hex), key=text = fixed, key? = typed with `set`
 SPECS=(
   "pg-role-postgrest|kubernetes.io/basic-auth|username=postgrest password:24"
   "pg-role-keycloak|kubernetes.io/basic-auth|username=keycloak password:24"
@@ -24,7 +14,6 @@ SPECS=(
   "agent-runtime|Opaque|llm-api-key?"
 )
 
-# What may be replaced while running. The others are read once, when their database is created.
 ROTATABLE=(
   pg-role-postgrest/password
   pg-role-keycloak/password
@@ -43,14 +32,10 @@ spec_of() {
   return 1
 }
 
-# Current value of a key, base64-encoded as stored ("" when absent)
 stored() { k get secret "$1" -o "jsonpath={.data.$2}" 2>/dev/null || true; }
 
 b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
 
-# Writes Secret <name> with every key of its spec: keeps the stored values, generates missing
-# ones, and takes <key>=<value> overrides from the remaining arguments. The manifest goes to
-# kubectl on stdin.
 write_secret() {
   local name="$1"; shift
   local spec type keys field key value override labels
@@ -58,7 +43,6 @@ write_secret() {
   type="$(cut -d'|' -f2 <<<"$spec")"
   keys="$(cut -d'|' -f3 <<<"$spec")"
   labels="    app.kubernetes.io/managed-by: homelab-secrets"
-  # CloudNativePG applies a changed role password at once
   [[ "$name" == pg-role-* ]] && labels+=$'\n    cnpg.io/reload: "true"'
   {
     printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n%s\ntype: %s\ndata:\n' \
@@ -74,7 +58,7 @@ write_secret() {
         case "$field" in
           *:*) value="$(b64 "$(openssl rand -hex "${field#*:}")")" ;;
           *=*) value="$(b64 "${field#*=}")" ;;
-          *\?) continue ;;   # typed later with `set`
+          *\?) continue ;;
         esac
       fi
       printf '  %s: %s\n' "$key" "$value"
@@ -82,7 +66,7 @@ write_secret() {
   } | kubectl apply --server-side --force-conflicts --field-manager=homelab-secrets -f - >/dev/null
 }
 
-missing_keys() { # secret → keys it lacks, one per line
+missing_keys() {
   local spec field key
   spec="$(spec_of "$1")"
   for field in $(cut -d'|' -f3 <<<"$spec"); do
@@ -137,6 +121,11 @@ case "$action" in
     k get secrets -l app.kubernetes.io/managed-by=homelab-secrets \
       -o go-template='{{range .items}}{{.metadata.name}}:{{range $k, $v := .data}} {{$k}}{{end}}{{"\n"}}{{end}}'
     ;;
+  show)
+    template='{{range .items}}{{$n := .metadata.name}}{{range $k, $v := .data}}{{$n}}/{{$k}}: {{$v | base64decode}}{{"\n"}}{{end}}{{end}}'
+    k get secrets -l app.kubernetes.io/managed-by=homelab-secrets -o go-template="$template"
+    k get secrets postgres-superuser postgres-app --ignore-not-found -o go-template="$template"
+    ;;
   set)
     name="${2:-}" key="${3:-}"
     spec_of "$name" >/dev/null || { red "Unknown Secret '$name' (see the list at the top of $0)"; exit 1; }
@@ -163,7 +152,15 @@ case "$action" in
     esac
     ;;
   *)
-    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+    cat <<EOF
+Usage:
+  $0                        create what is missing (safe to re-run)
+  $0 check [secret…]        exit 1 if a Secret or key is missing
+  $0 list                   Secrets and their keys, without values
+  $0 show                   every password and key, with its value
+  $0 set <secret> <key>     type a value yourself (e.g. agent-runtime llm-api-key)
+  $0 rotate <secret> <key>  replace a generated value; the pods using it restart
+EOF
     exit 1
     ;;
 esac

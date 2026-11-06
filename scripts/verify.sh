@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Checks the running homelab after `make apply`, one section per release group (the groups of
-# helmfile.yaml.gotmpl, `make apply G=<group>`): platform, repository, message-broker,
-# observability, gateway, llm, apps. Changes nothing (test rows are rolled back).
 source "$(dirname "$0")/_common.sh"
 require_cluster
 
@@ -9,7 +6,7 @@ errors=0
 fail() { red "  ✗ $*"; errors=$((errors + 1)); }
 ok()   { green "  ✓ $*"; }
 note() { yellow "  ! $*"; }
-expect() { # description, condition... (the condition's own output is hidden)
+expect() {
   local description="$1"; shift
   if "$@" >/dev/null 2>&1; then ok "$description"; else fail "$description"; fi
 }
@@ -24,14 +21,10 @@ redirect_to() { curl -s -o /dev/null -w '%{redirect_url}' --max-time 10 "$@" || 
 contains() { [[ "$1" == *"$2"* ]]; }
 equals() { [[ "$1" == "$2" ]]; }
 not() { ! "$@"; }
-# Fetches a URL from inside the cluster, through the caddy pod (busybox wget)
 inside() { k exec deploy/caddy -c caddy -- wget -q -T 5 -O - "$@" 2>/dev/null || true; }
-# Number of series a PromQL query returns
 series() { inside "http://prometheus:9090/api/v1/query?query=$(jq -rn --arg q "$1" '$q | @uri')" | jq -r '.data.result | length' 2>/dev/null || echo 0; }
 positive() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 > 0 )); }
 psql_homelab() { k exec -i "$(postgres_primary)" -c postgres -- psql -d homelab -X -q -tA -v ON_ERROR_STOP=1 "$@"; }
-# Exit 0 if the release's pod opens a TCP connection to host:port (Python in the agents' images,
-# Node in the MCP Inspector's)
 can_reach() {
   k exec "deploy/$1" -c "$1" -- python -c \
     "import socket, sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), 3)" "$2" "$3" >/dev/null 2>&1
@@ -93,7 +86,6 @@ no_user="$(k exec deploy/caddy -c caddy -- sh -c \
 expect "PostgREST refuses gateway requests without a signed-in user (401)" contains "$no_user" " 401 "
 expect "MongoDB answers" \
   equals "$(k exec mongodb-0 -- mongosh --quiet --eval "db.adminCommand('ping').ok" 2>/dev/null || true)" "1"
-# 8.x refuses to start on the server's kernel (SERVER-121912)
 mongo_image="$(k get statefulset mongodb -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
 expect "MongoDB runs 7.0 (${mongo_image:-no mongodb StatefulSet})" contains "$mongo_image" "mongo:7.0"
 for db in postgres mongodb; do
@@ -135,7 +127,6 @@ echo "==> gateway: Caddy, Keycloak, oauth2-proxy"
 expect "HTTPS answers with a trusted certificate ($site)" \
   equals "$(curl -fsS --max-time 10 "$site/healthz" 2>/dev/null || true)" "OK"
 expect "plain HTTP is refused" equals "$(http_status "http://${domain}:443/")" "400"
-# Every host port of every pod, as "<hostIP>:<hostPort>"
 bindings="$(kubectl get pods -A -o jsonpath='{range .items[*]}{range .spec.containers[*].ports[?(@.hostPort)]}{.hostIP}:{.hostPort}{"\n"}{end}{end}' | sort -u)"
 others="$(grep -v "^${address}:" <<<"$bindings" | paste -sd ' ' - || true)"
 expect "every published port listens on the Tailscale address ${address} only${others:+ (also: $others)}" equals "$others" ""
@@ -153,7 +144,6 @@ expect "the LLM playground sends signed-out visitors to the sign-in page" \
   contains "$(redirect_to "https://${domain}:8090/ui")" "$site/oauth2/sign_in"
 expect "the LLM API refuses calls without the API key or a session (401)" \
   equals "$(http_status "https://${domain}:8090/v1/models")" "401"
-# The key goes to curl on stdin, never on a command line
 llm_with_key="$(printf 'header = "Authorization: Bearer %s"\n' \
   "$(k get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d)" |
   curl -s -o /dev/null -w '%{http_code}' --max-time 10 -K - "https://${domain}:8090/v1/models" || true)"
@@ -184,7 +174,6 @@ expect "homelab-ui answers behind the gateway" contains "$(inside http://homelab
 expect "homelab-ui sends signed-out visitors to the sign-in page" contains "$(redirect_to "$site/")" "/oauth2/sign_in"
 expect "agent-runtime answers on http://${domain}:8000" \
   equals "$(http_status "http://${domain}:8000/actuator/health")" "200"
-# The LLM provider agent-runtime is configured with (NVIDIA's API, or the local llm:8080)
 llm_url="$(k get deploy agent-runtime -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LLM_BASE_URL")].value}')"
 llm_scheme="${llm_url%%://*}"; llm_hostport="${llm_url#*://}"; llm_hostport="${llm_hostport%%/*}"
 llm_host="${llm_hostport%%:*}"; llm_port="${llm_hostport##*:}"

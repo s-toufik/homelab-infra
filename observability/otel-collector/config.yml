@@ -1,7 +1,3 @@
-# Single OTLP entrypoint for applications:
-#   traces  -> Tempo
-#   metrics -> Prometheus (native OTLP receiver)
-#   logs    -> Loki (native OTLP endpoint)
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
@@ -23,7 +19,7 @@ processors:
     attributes:
       - key: deployment.environment
         value: homelab
-        action: insert   # keep the value if the app already set it
+        action: insert
   batch:
     send_batch_size: 8192
     timeout: 5s

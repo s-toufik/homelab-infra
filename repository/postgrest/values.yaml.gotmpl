@@ -1,6 +1,3 @@
-# PostgREST: Tasker's REST API over schema "tasker". Reached only through the gateway at
-# /api/tasker/ (signed in, with X-Gateway-Secret); it logs in as postgrest and acts as tasker_web,
-# so PostgreSQL's row-level security shows each account its own rows.
 image:
   repository: postgrest/postgrest
   tag: {{ .Values.images.postgrest | quote }}
@@ -11,7 +8,7 @@ env:
   PGRST_DB_ANON_ROLE: tasker_web
   PGRST_DB_PRE_REQUEST: tasker.check_request
   PGRST_OPENAPI_MODE: disabled
-  PGRST_ADMIN_SERVER_PORT: "3002"   # /live and /ready, for the probes and the Status page
+  PGRST_ADMIN_SERVER_PORT: "3002"
 secretEnv:
   POSTGREST_PASSWORD: { secret: pg-role-postgrest, key: password }
   PGRST_APP_SETTINGS_GATEWAY_SECRET: { secret: tasker-gateway, key: secret }
@@ -39,4 +36,4 @@ securityContext:
   readOnlyRootFilesystem: true
 
 metrics:
-  port: 3002   # the admin server's /metrics
+  port: 3002

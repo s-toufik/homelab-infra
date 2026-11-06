@@ -1,17 +1,10 @@
-# agent-toolbox on this server. How it runs (env, ports, probes, volumes) comes with its chart,
-# from its repository's devops/helm/values.yml; this file adds who may talk to it.
-#
-# It runs code the agent writes, so it reaches nothing in the homelab but the OTel Collector (its
-# telemetry): no database, Kafka or LLM. It keeps the internet.
 networkPolicy:
   ingress:
     - from:
         - podSelector: { matchLabels: { app.kubernetes.io/name: agent-runtime } }
         - podSelector: { matchLabels: { app.kubernetes.io/name: mcp-inspector } }
-        - podSelector: { matchLabels: { app.kubernetes.io/name: caddy } }   # health route
-        # MCP clients on the tailnet's devices, through the host port on the Tailscale address
+        - podSelector: { matchLabels: { app.kubernetes.io/name: caddy } }
         - ipBlock: { cidr: 100.64.0.0/10 }
-        # The server itself (probes): its node address and its pod network gateway
         - ipBlock: { cidr: 10.250.0.1/32 }
         - ipBlock: { cidr: 10.42.0.1/32 }
       ports: [{ protocol: TCP, port: 8001 }]
@@ -26,5 +19,4 @@ networkPolicy:
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
-            # The cluster, the server, the home network and the tailnet
             except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16]

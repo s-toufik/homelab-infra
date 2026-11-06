@@ -28,8 +28,8 @@ def log(msg):
 
 def poll():
     global targets_json
-    first_seen = {}  # model -> epoch seconds when first observed "ready" this load cycle
-    listed = set()  # models currently served, so we only log on change
+    first_seen = {}
+    listed = set()
     while True:
         try:
             with urllib.request.urlopen(f"http://{LLM_HOST}/running", timeout=5) as r:
@@ -40,7 +40,6 @@ def poll():
 
         ready_now = {m["model"]: m.get("ttl", 0) for m in running if m.get("state") == "ready"}
 
-        # Drop tracking for models no longer ready, so a future reload starts a fresh window.
         for model in list(first_seen):
             if model not in ready_now:
                 del first_seen[model]
@@ -84,7 +83,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, *args):
-        pass  # one line per Prometheus refresh is noise
+        pass
 
 
 log(f"polling http://{LLM_HOST}/running every {POLL_INTERVAL}s, serving :{PORT}/targets")

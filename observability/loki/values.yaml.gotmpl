@@ -1,5 +1,3 @@
-# Loki: logs, 30 days (./config.yml). Alloy pushes the pods' logs, the OTel Collector the apps'
-# OTLP logs. Read through Grafana; its API is served by the gateway on :3100 (signed in).
 kind: StatefulSet
 
 image:
@@ -44,7 +42,6 @@ configFiles:
       config.yml: |
         {{- readFile "config.yml" | nindent 8 }}
 
-# The image's loki user
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 10001

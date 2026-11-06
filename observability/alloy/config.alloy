@@ -1,15 +1,8 @@
-// Grafana Alloy: the server's metrics, its containers' metrics and the pods' logs.
-// App telemetry (OTLP) goes through the OTel Collector instead.
-
 logging {
   level  = "warn"
   format = "logfmt"
 }
 
-// ---------------------------------------------------------------------------
-// Server metrics (node_exporter equivalent): the server's /, /proc and /sys, mounted read-only.
-// Alloy uses the server's network, so network metrics are the server's.
-// ---------------------------------------------------------------------------
 prometheus.exporter.unix "host" {
   rootfs_path = "/host/root"
   procfs_path = "/host/proc"
@@ -27,9 +20,6 @@ prometheus.scrape "host" {
   forward_to      = [prometheus.relabel.instance.receiver]
 }
 
-// ---------------------------------------------------------------------------
-// Container metrics: the kubelet's cAdvisor, through the Kubernetes API
-// ---------------------------------------------------------------------------
 discovery.kubernetes "nodes" {
   role = "node"
 }
@@ -76,9 +66,6 @@ prometheus.remote_write "default" {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Pod logs (namespace homelab) -> Loki
-// ---------------------------------------------------------------------------
 discovery.kubernetes "pods" {
   role = "pod"
   namespaces {
@@ -89,7 +76,6 @@ discovery.kubernetes "pods" {
 discovery.relabel "pods" {
   targets = discovery.kubernetes.pods.targets
 
-  // Apps that send their logs over OTLP (annotation homelab.io/logs: otlp): not ingested twice
   rule {
     source_labels = ["__meta_kubernetes_pod_annotation_homelab_io_logs"]
     regex         = "otlp"
@@ -111,7 +97,6 @@ discovery.relabel "pods" {
     target_label  = "container"
   }
 
-  // service_name: the release (app.kubernetes.io/name), or postgres for the operator's pods
   rule {
     source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
     target_label  = "service_name"

@@ -1018,6 +1018,9 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 **List them** (names and keys, no values)
 - `make secrets-list` — raw: `./scripts/secrets.sh list`
 
+**Show their values** (every password and key, PostgreSQL's included)
+- `make show-secrets` — raw: `./scripts/secrets.sh show`
+
 **Type a value yourself** (e.g. the LLM provider's API key)
 1. `make secret-set SECRET=<secret> KEY=<key>` — raw: `./scripts/secrets.sh set <secret> <key>`
 2. Paste the value twice (hidden). The pods using it restart.
@@ -1279,6 +1282,7 @@ Deletes all data: databases, accounts, Secrets, volumes. The operators (`cnpg`, 
 | `make local` | `./scripts/local.sh` |
 | `make secrets` | `./scripts/secrets.sh` |
 | `make secrets-list` | `./scripts/secrets.sh list` |
+| `make show-secrets` | `./scripts/secrets.sh show` |
 | `make secret-set SECRET=… KEY=…` | `./scripts/secrets.sh set <secret> <key>` |
 | `make secret-rotate SECRET=… KEY=…` | `./scripts/secrets.sh rotate <secret> <key>` |
 | `make validate` | `./scripts/validate.sh` |

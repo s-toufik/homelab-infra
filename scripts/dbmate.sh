@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Runs a dbmate command against PostgreSQL in a one-off copy of the db-migrate job (same image,
-# migration files and password), prints its output, then deletes it.
-#   ./scripts/dbmate.sh status      applied and pending migrations
-#   ./scripts/dbmate.sh rollback    undo the latest migration (its migrate:down)
-# Applying migrations is `make migrate` (the db-migrate release's own job).
 source "$(dirname "$0")/_common.sh"
 require_cluster
 

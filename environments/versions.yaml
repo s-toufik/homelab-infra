@@ -1,37 +1,31 @@
-# What runs on the server. Changing a version here and running `helmfile apply` upgrades it;
-# committing this file records the release train.
-
-# Charts
 charts:
-  app: 0.3.0              # oci://ghcr.io/s-toufik/charts/app (kube-charts)
-  pgCluster: 0.1.0        # oci://ghcr.io/s-toufik/charts/pg-cluster (kube-charts)
-  cloudnativePg: 0.29.1   # CloudNativePG operator 1.30.1
-  reloader: 2.2.19        # Stakater Reloader 1.4.23
+  app: 0.3.0
+  pgCluster: 0.1.0
+  cloudnativePg: 0.29.1
+  reloader: 2.2.19
 
-# Images of the services deployed with the app chart
 images:
   caddy: 2.11.7
   keycloak: 26.8.1
   oauth2Proxy: v7.15.5
-  postgres: 18.6-standard-trixie   # ghcr.io/cloudnative-pg/postgresql
+  postgres: 18.6-standard-trixie
   dbmate: 2.36.0
   postgrest: v16.5
-  mongodb: 7.0.45   # not 8.x: MongoDB 8 refuses to start on Linux 6.19–7.0.13 (SERVER-121912)
+  mongodb: 7.0.45
   kafka: 4.3.2
   kafkaUi: v1.2.0
   mcpInspector: 2.13.0
   prometheus: v3.4.1
   loki: 3.5.1
   tempo: 2.8.1
-  otelCollector: 0.128.0   # otel/opentelemetry-collector-contrib
+  otelCollector: 0.128.0
   alloy: v1.9.2
   grafana: 12.0.2
   kafkaExporter: v1.9.0
   mongodbExporter: 0.53.0
   llamaSwap: v269-cpu-b12033-non-root
-  python: 3.13-alpine      # llm-sd
+  python: 3.13-alpine
 
-# Apps released from their own repositories: chart and image share this version (git tag vX.Y.Z)
 apps:
   homelabUi: 1.1.1
   agentToolbox: 1.0.0

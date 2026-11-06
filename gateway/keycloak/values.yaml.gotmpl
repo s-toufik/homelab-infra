@@ -1,5 +1,3 @@
-# Keycloak: sign-in accounts, stored in PostgreSQL database "keycloak". Its pages are served by
-# Caddy on :8443 (/admin blocked); accounts are managed from the server's terminal (scripts/users.sh).
 image:
   repository: quay.io/keycloak/keycloak
   tag: {{ .Values.images.keycloak | quote }}
@@ -16,13 +14,12 @@ env:
   KC_HEALTH_ENABLED: "true"
 secretEnv:
   KC_DB_PASSWORD: { secret: pg-role-keycloak, key: password }
-  # Used once, when the database is empty; scripts/users.sh signs in with it afterwards
   KC_BOOTSTRAP_ADMIN_USERNAME: { secret: keycloak-admin, key: username }
   KC_BOOTSTRAP_ADMIN_PASSWORD: { secret: keycloak-admin, key: password }
 
 ports:
   - { name: http, port: 8080 }
-  - { name: management, port: 9000 }   # health
+  - { name: management, port: 9000 }
 
 probes:
   startup:
@@ -53,8 +50,6 @@ configFiles:
       sync.sh: |
         {{- readFile "sync.sh" | nindent 8 }}
 
-# After every install and upgrade: applies the "homelab" realm (settings, password policy, the
-# oauth2-proxy and Grafana clients with their secrets) from ./sync.sh. Never touches accounts.
 jobs:
   sync:
     command: [/bin/bash, /opt/keycloak/sync/sync.sh]

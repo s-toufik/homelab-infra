@@ -1,5 +1,3 @@
-# MongoDB: agent-runtime's conversation checkpoints. Its root account is created from Secret
-# mongodb when the volume is first initialised. Reachable from the tailnet on <domain>:27017.
 kind: StatefulSet
 
 image:
@@ -43,7 +41,6 @@ persistence:
     mountPath: /data/configdb
     size: 1Gi
 
-# The image's own mongodb user: as non-root, its entrypoint starts mongod directly
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 999

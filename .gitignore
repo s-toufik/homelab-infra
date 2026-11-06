@@ -1,4 +1,3 @@
-# ---------- Secrets / local config ----------
 .env
 .env.*
 !.env.example
@@ -7,17 +6,14 @@
 *.crt
 secrets/
 
-# This server's Tailscale name and address (make local)
 environments/local.yaml
 
-# ---------- Data (local dumps and bind mounts) ----------
 /backups/
 data/
 *.dump
 *.archive
 *.sql.gz
 
-# ---------- Python ----------
 __pycache__/
 *.py[cod]
 .venv/
@@ -31,19 +27,15 @@ htmlcov/
 dist/
 build/
 
-# ---------- Rust ----------
 target/
 
-# ---------- Node ----------
 node_modules/
 
-# ---------- Logs & temp ----------
 *.log
 *.tmp
 *.swp
 *~
 
-# ---------- Editors / OS ----------
 .idea/
 .vscode/
 *.code-workspace

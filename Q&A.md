@@ -5,6 +5,8 @@ Short answers to everyday questions. Run commands on the server, in the `homelab
 - [How do I deploy a dev image of the agent?](#how-do-i-deploy-a-dev-image-of-the-agent)
 - [Where are the passwords stored?](#where-are-the-passwords-stored)
 - [Where are the Secrets stored, and how do I read a password?](#where-are-the-secrets-stored-and-how-do-i-read-a-password)
+- [How do I see every password on the server?](#how-do-i-see-every-password-on-the-server)
+- [How do I connect to MongoDB from Compass?](#how-do-i-connect-to-mongodb-from-compass)
 - [How do I see the logs?](#how-do-i-see-the-logs)
 - [How do I stop everything?](#how-do-i-stop-everything)
 - [How do I restart everything?](#how-do-i-restart-everything)
@@ -50,7 +52,7 @@ Nothing is in git: not the passwords, not `environments/local.yaml` (only the se
 
 **Where.** Kubernetes Secrets in namespace `homelab`. k3s keeps them in its database, `/var/lib/rancher/k3s/server/db/state.db`, encrypted; the key is `/var/lib/rancher/k3s/server/cred/encryption-config.json` (root only). Anyone in the group `k3s-admin` can read them through kubectl.
 
-**Which ones.** `make secrets-list` — raw: `./scripts/secrets.sh list` (every Secret and its keys, no values). The list the homelab creates is `SPECS` in [`scripts/secrets.sh`](scripts/secrets.sh):
+**Which ones.** `make secrets-list` — raw: `./scripts/secrets.sh list` (every Secret and its keys, no values). With their values: `make show-secrets` — raw: `./scripts/secrets.sh show`. The list the homelab creates is `SPECS` in [`scripts/secrets.sh`](scripts/secrets.sh):
 
 | Secret | Keys | Used by |
 |---|---|---|
@@ -77,6 +79,33 @@ kubectl -n homelab get secret mongodb -o json | jq -r '.data | map_values(@base6
 
 - The value is printed in your terminal: copy it where it's needed, never into git or a chat.
 - Change one: `make secret-rotate SECRET=<secret> KEY=<key>` (generated) or `make secret-set SECRET=<secret> KEY=<key>` (typed) — raw: `./scripts/secrets.sh rotate|set <secret> <key>`. The pods using it restart by themselves.
+
+## How do I see every password on the server?
+
+`make show-secrets` — raw: `./scripts/secrets.sh show`
+
+It prints one line per value, `<secret>/<key>: <value>`: every Secret `make secrets` creates (MongoDB, Keycloak and Grafana admins, PostgreSQL roles, sign-in and gateway keys, the LLM key) and PostgreSQL's `postgres-superuser` and `postgres-app` (with their connection strings).
+
+- The sign-in accounts' passwords aren't there: Keycloak keeps only their hashes. Replace one with `make user-password ACCOUNT=<name>` — raw: `./scripts/users.sh password <name>`.
+- The values are in your terminal: clear it after (`clear`), and never paste them into git or a chat.
+- One Secret only: [Read every key of a Secret](#where-are-the-secrets-stored-and-how-do-i-read-a-password).
+
+## How do I connect to MongoDB from Compass?
+
+MongoDB answers on the server's port 27017, from the tailnet only. The account is MongoDB's root, in Secret `mongodb`.
+
+1. **Copy the password to your Mac's clipboard.** On your Mac:
+   ```bash
+   ssh <user>@<HOMELAB_DOMAIN> 'KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n homelab get secret mongodb -o jsonpath={.data.password} | base64 -d' | pbcopy
+   ```
+   Nothing is printed; the password is in the clipboard. The username is `root`.
+2. **In Compass, click Add new connection** and set the URI to `mongodb://<HOMELAB_DOMAIN>:27017/?authSource=admin`, without the password.
+3. **Open Advanced Connection Options → Authentication → Username/Password.** Username `root`, paste the password, Authentication Database `admin`.
+4. **Save & Connect.** Compass lists the databases. It keeps the password on your Mac, so you do this once.
+
+- Compass says `connection timed out`: Tailscale isn't on on your Mac, or MongoDB isn't running (`make status` on the server).
+- Compass says `Authentication failed`: the password was rotated or mistyped; copy it again (step 1).
+- Same for any client (mongosh, a script): `mongodb://root:<password>@<HOMELAB_DOMAIN>:27017/?authSource=admin`. Keep that string out of git.
 
 ## How do I see the logs?
 
@@ -151,7 +180,8 @@ kubectl -n homelab delete pod -l cnpg.io/cluster=postgres      # PostgreSQL: its
 | See its revisions | `helm -n homelab history <release>` | |
 
 **Scale it (change the number of pods):**
-- For good: in its values file (`<group>/<release>/values.yaml.gotmpl`), add `replicas: 2`, commit, push; on the server `git pull`, `make apply R=<release>`.
+- Your apps (homelab-ui, agent-runtime, agent-toolbox): `replicas:` in the app repository's `devops/helm/values.yml`, shipped with its next tag (`vX.Y.Z`, then `apps.<app>` in `environments/versions.yaml`, `make apply R=<app>`). To change it before the next tag, set `replicas:` in `apps/<app>/values.yaml.gotmpl`: it wins over the app's own file.
+- The other releases, for good: in their values file (`<group>/<release>/values.yaml.gotmpl`), add `replicas: 2`, commit, push; on the server `git pull`, `make apply R=<release>`.
 - For a moment: `kubectl -n homelab scale deploy/<release> --replicas=2`; back with `--replicas=1`. git doesn't know about it, so set it back yourself.
 - `replicas: 0` stops a release without uninstalling it.
 - More than one pod works only for releases without a volume or a published port: homelab-ui, postgrest, oauth2-proxy, kafka-ui. The others (databases, Kafka, Caddy, the agent, the LLM…) run one pod.

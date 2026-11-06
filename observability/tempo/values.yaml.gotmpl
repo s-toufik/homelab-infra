@@ -1,5 +1,3 @@
-# Tempo: traces, 7 days (./config.yml), from the OTel Collector; its metrics generator sends
-# service graphs and span metrics to Prometheus. API served by the gateway on :3200 (signed in).
 kind: StatefulSet
 
 image:
@@ -45,7 +43,6 @@ configFiles:
       config.yml: |
         {{- readFile "config.yml" | nindent 8 }}
 
-# The image's tempo user
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 10001

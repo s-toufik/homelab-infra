@@ -1,8 +1,4 @@
 #!/bin/bash
-# Applies the "homelab" realm configuration after every install and upgrade of the keycloak release
-# (its `sync` job): creates what is missing and resets the settings below, so the realm always
-# matches this file (client secrets included). Accounts are never created or changed here — that is
-# `make user-*`.
 set -euo pipefail
 
 kc="${KCADM:-/opt/keycloak/bin/kcadm.sh}"
@@ -14,7 +10,6 @@ mkdir -p "$work"
 
 k() { "$kc" "$@" --config "$cfg"; }
 
-# Keycloak can still answer 503 for a short while after its health check turns green.
 attempts=150
 for ((i = 1; i <= attempts; i++)); do
   if output="$("$kc" config credentials --config "$cfg" --server "$KEYCLOAK_URL" --realm master \
@@ -57,7 +52,7 @@ client_uuid() {
   k get clients -r "$realm" -q clientId="$1" --fields id --format csv --noquotes
 }
 
-upsert_client() { # clientId, representation file
+upsert_client() {
   local uuid
   uuid="$(client_uuid "$1")"
   if [[ -z "$uuid" ]]; then
@@ -69,7 +64,7 @@ upsert_client() { # clientId, representation file
   fi
 }
 
-ensure_mapper() { # clientId, mapper name, mapper file
+ensure_mapper() {
   local uuid
   uuid="$(client_uuid "$1")"
   if ! k get "clients/$uuid/protocol-mappers/models" -r "$realm" --fields name --format csv --noquotes |
@@ -79,7 +74,6 @@ ensure_mapper() { # clientId, mapper name, mapper file
   fi
 }
 
-# --- oauth2-proxy: the sign-in check in front of homelab-ui and the tools ---
 cat >"$work/oauth2-proxy.json" <<JSON
 {
   "clientId": "oauth2-proxy",
@@ -119,7 +113,6 @@ JSON
 upsert_client oauth2-proxy "$work/oauth2-proxy.json"
 ensure_mapper oauth2-proxy audience-oauth2-proxy "$work/oauth2-proxy-audience.json"
 
-# --- Grafana: signs in with Keycloak itself (realm role "admin" → Grafana Admin) ---
 cat >"$work/grafana.json" <<JSON
 {
   "clientId": "grafana",

@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
-# PostgreSQL and MongoDB backups in /var/backups/homelab (root only), made every night by the
-# backups release's cron jobs.
-#   ./scripts/backups.sh now                         back up both now (the same jobs, run once)
-#   ./scripts/backups.sh list                        the backups, newest last
-#   ./scripts/backups.sh restore-postgres <file>     REPLACES that database (homelab or keycloak,
-#                                                    from the file's name) with the backup
-#   ./scripts/backups.sh restore-mongo <file>        REPLACES MongoDB's data with the backup
 source "$(dirname "$0")/_common.sh"
 require_cluster
 
 DIR=/var/backups/homelab
 
-confirm() { # what will be replaced
+confirm() {
   read -r -p "This REPLACES $1. Type 'restore' to confirm: " answer
   [[ "$answer" == restore ]] || { yellow "Aborted."; exit 1; }
 }
@@ -63,7 +56,13 @@ case "${1:-}" in
     green "  ✓ MongoDB restored from $file"
     ;;
   *)
-    sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+    cat <<EOF
+Usage:
+  $0 now                       back up PostgreSQL and MongoDB now
+  $0 list                      the backups, newest last
+  $0 restore-postgres <file>   REPLACES that database (homelab or keycloak, from the file's name)
+  $0 restore-mongo <file>      REPLACES MongoDB's data
+EOF
     exit 1
     ;;
 esac

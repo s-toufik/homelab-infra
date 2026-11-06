@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Shared helpers, sourced by the other scripts.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,20 +17,15 @@ require_cluster() {
     { red "Kubernetes doesn't answer: is k3s running (systemctl status k3s) and KUBECONFIG=/etc/rancher/k3s/k3s.yaml set?"; exit 1; }
 }
 
-# A value of environments/local.yaml (written by `make local`)
 local_value() {
   [[ -f environments/local.yaml ]] || { red "Missing environments/local.yaml — run: make local"; exit 1; }
   awk -v key="$1" -F': *' '$1 == key { print $2 }' environments/local.yaml | tr -d '"'
 }
 
-# The pod running the PostgreSQL primary
 postgres_primary() {
   k get pod -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o name | head -n1
 }
 
-# Runs Keycloak's admin CLI inside the keycloak pod, signed in as its bootstrap admin: the
-# password is read there, from the pod's own environment, and never reaches this machine.
-# Arguments are passed to kcadm.sh verbatim.
 kcadm() {
   k exec -i deploy/keycloak -c keycloak -- bash -c '
     set -e
