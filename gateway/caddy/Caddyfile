@@ -123,7 +123,7 @@
 			import health_route loki loki:3100 /ready
 			import health_route tempo tempo:3200 /ready
 			import health_route otel-collector otel-collector:13133 /
-			import health_route alloy alloy:12345 /-/ready
+			import health_route alloy alloy:12346 /-/ready
 			import health_route grafana grafana:3000 /api/health
 			import health_route llm llm:8080 /health
 			import health_route llm-sd llm-sd:8000 /targets
@@ -190,7 +190,7 @@
 }
 
 {$HOMELAB_DOMAIN}:12345 {
-	import signed_in_tool alloy:12345
+	import signed_in_tool alloy:12346
 }
 
 {$HOMELAB_DOMAIN}:3100 {

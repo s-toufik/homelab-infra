@@ -7,8 +7,10 @@ image:
 
 args:
   - run
-  # The server's node address only (it uses the server's network): never the home network
-  - --server.http.listen-addr=10.250.0.1:12345
+  # The server's node address only (it uses the server's network): never the home network.
+  # 12346, not Alloy's usual 12345: a pod on the server's network reserves its ports on every
+  # server address, and the gateway already publishes 12345 (the scheduler would never start it)
+  - --server.http.listen-addr=10.250.0.1:12346
   - --storage.path=/var/lib/alloy/data
   - /etc/alloy/config.alloy
 
@@ -16,7 +18,7 @@ args:
 hostNetwork: true
 
 ports:
-  - { name: http, port: 12345 }
+  - { name: http, port: 12346 }
 
 probes:
   readiness:
@@ -28,7 +30,7 @@ probes:
     failureThreshold: 5
 
 metrics:
-  port: 12345
+  port: 12346
 
 resources:
   requests: { cpu: 100m, memory: 256Mi }
