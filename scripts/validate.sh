@@ -53,11 +53,32 @@ while IFS= read -r name; do used+=("$name"); done < <(
 if ./scripts/secrets.sh check "${used[@]}"; then ok "the Secrets the releases use exist (${#used[@]})"; else fail "Secrets missing (above)"; fi
 
 echo "==> Release train"
-if helmfile template >/dev/null 2>"${TMPDIR:-/tmp}/helmfile-validate.log"; then
+rendered="${TMPDIR:-/tmp}/helmfile-validate.yaml"
+if helmfile template >"$rendered" 2>"${TMPDIR:-/tmp}/helmfile-validate.log"; then
   ok "every release renders (helmfile template)"
+  # A host port, or a port of a pod on the server's network, is held by one pod at a time: a second
+  # pod wanting it is never started. Only the workloads go to kubectl (it can't read objects whose
+  # operator isn't installed yet).
+  awk 'function flush() { if (doc ~ /(^|\n)kind: (Deployment|StatefulSet|DaemonSet)\n/) printf "---\n%s", doc; doc = "" }
+       /^---/ { flush(); next } { doc = doc $0 "\n" } END { flush() }' "$rendered" >"$rendered.workloads"
+  if objects="$(kubectl create --dry-run=client -o json -f "$rendered.workloads" 2>"${TMPDIR:-/tmp}/helmfile-validate.log")"; then
+    clashes="$(jq -r '
+      [ (if .kind == "List" then .items[] else . end)
+        | select(.kind == "Deployment" or .kind == "StatefulSet" or .kind == "DaemonSet")
+        | .metadata.name as $name | .spec.template.spec | (.hostNetwork // false) as $host
+        | (.containers + (.initContainers // []))[] | .ports[]?
+        | { name: $name, port: (if $host then .containerPort else .hostPort end) }
+        | select(.port != null) ]
+      | group_by(.port)[] | select(length > 1) | "\(.[0].port) (\(map(.name) | join(", ")))"' <<<"$objects")"
+    if [[ -z "$clashes" ]]; then ok "no two pods want the same server port"
+    else fail "server ports wanted by two pods: $(paste -sd ' ' <<<"$clashes")"; fi
+  else
+    fail "kubectl can't read the rendered train:"; sed 's/^/      /' "${TMPDIR:-/tmp}/helmfile-validate.log" >&2
+  fi
 else
   fail "helmfile template failed:"; sed 's/^/      /' "${TMPDIR:-/tmp}/helmfile-validate.log" >&2
 fi
+rm -f "$rendered" "$rendered.workloads"
 
 echo "==> Configs"
 tag() { awk -v name="$1" '$1 == name ":" { print $2 }' environments/versions.yaml; }
