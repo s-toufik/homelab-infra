@@ -11,6 +11,9 @@ SPECS=(
   "tasker-gateway|Opaque|secret:32"
   "llm-gateway|Opaque|api-key:32"
   "mongodb|Opaque|username=root password:24"
+  "mongodb-mcp|Opaque|username=mcp password:24"
+  "pg-role-mcp|kubernetes.io/basic-auth|username=mcp password:24"
+  "grafana-mcp|Opaque|token?"
   "agent-runtime|Opaque|llm-api-key?"
 )
 
@@ -22,6 +25,8 @@ ROTATABLE=(
   grafana-oidc/client-secret
   tasker-gateway/secret
   llm-gateway/api-key
+  mongodb-mcp/password
+  pg-role-mcp/password
 )
 
 spec_of() {
@@ -149,6 +154,8 @@ case "$action" in
     case "$name/$key" in
       oauth2-proxy/client-secret | grafana-oidc/client-secret)
         yellow "  ! give Keycloak the new client secret: make sync R=keycloak" ;;
+      mongodb-mcp/password)
+        yellow "  ! give MongoDB the new password: make sync R=mongodb" ;;
     esac
     ;;
   *)

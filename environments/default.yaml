@@ -9,3 +9,12 @@ prometheus:
 backups:
   schedule: "0 3 * * *"
   keepDays: 14
+
+mcp:
+  grafana:
+    write: false
+    categories: search,datasource,dashboard,prometheus,loki,alerting,navigation
+  mongodb:
+    write: false
+  postgres:
+    write: false

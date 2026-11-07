@@ -52,7 +52,7 @@ releases:
     needs: [cnpg-system/cnpg]
     disableValidationOnInstall: true
     hooks:
-      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-postgrest, pg-role-keycloak] }
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-postgrest, pg-role-keycloak, pg-role-mcp] }
       - { events: [postsync], showlogs: true, command: kubectl, args: [-n, homelab, wait, --for=condition=Ready, clusters.postgresql.cnpg.io/postgres, --timeout=10m] }
 
   - name: db-migrate
@@ -71,7 +71,7 @@ releases:
     inherit: [{ template: homelab }]
     labels: { group: repository }
     hooks:
-      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, mongodb] }
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, mongodb, mongodb-mcp] }
 
   - name: backups
     inherit: [{ template: homelab }]
@@ -173,6 +173,27 @@ releases:
     labels: { group: llm }
     needs: [homelab/agent-toolbox]
 
+  - name: grafana-mcp
+    inherit: [{ template: homelab }]
+    labels: { group: llm }
+    needs: [homelab/grafana]
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, grafana-mcp] }
+
+  - name: mongodb-mcp
+    inherit: [{ template: homelab }]
+    labels: { group: llm }
+    needs: [homelab/mongodb]
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, mongodb-mcp] }
+
+  - name: postgres-mcp
+    inherit: [{ template: homelab }]
+    labels: { group: llm }
+    needs: [homelab/postgres]
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-mcp] }
+
   - name: homelab-ui
     inherit: [{ template: homelab }]
     chart: homelab/homelab-ui
@@ -184,6 +205,7 @@ releases:
     chart: homelab/agent-toolbox
     version: {{ .Values.apps.agentToolbox }}
     labels: { group: apps }
+    needs: [homelab/grafana-mcp, homelab/mongodb-mcp, homelab/postgres-mcp]
 
   - name: agent-runtime
     inherit: [{ template: homelab }]

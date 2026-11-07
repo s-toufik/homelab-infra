@@ -26,6 +26,10 @@ roles:
   - name: keycloak
     login: true
     passwordSecret: { name: pg-role-keycloak }
+  - name: mcp
+    login: true
+    inRoles: [pg_read_all_data{{ if .Values.mcp.postgres.write }}, pg_write_all_data{{ end }}]
+    passwordSecret: { name: pg-role-mcp }
 
 databases:
   - name: keycloak

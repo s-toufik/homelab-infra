@@ -46,6 +46,7 @@ Each group is a folder and a label of the release train ([`helmfile.yaml.gotmpl`
 | | Headlamp | The Kubernetes dashboard on `:4466`, admins only, through kube-api (no token of its own) |
 | **[llm/](llm)** | [LLM (llama-swap)](llm/llm/README.md) · llm-sd | Local models behind an OpenAI-compatible API, plus a playground; llm-sd tells Prometheus which models are loaded |
 | | [MCP Inspector](llm/mcp-inspector/README.md) | Lists and tries the toolbox's tools in the browser, behind the sign-in |
+| | grafana-mcp · mongodb-mcp · postgres-mcp | Grafana's, MongoDB's and PostgreSQL's MCP servers: agent-toolbox republishes their tools (`grafana_*`, `mongodb_*`, `postgres_*`), read-only unless `mcp.<server>.write` in `environments/default.yaml` says otherwise |
 | **[apps/](apps)** — yours, each from its own repository | homelab-ui | The front door: a control center, a **Status** page, every tool rebuilt as its own page (dashboards, metrics, logs, traces, Kafka, models, tools, account, Kubernetes), the agent beside every page, and Tasker |
 | | agent-runtime · agent-toolbox | The homelab agent and its tools (files, Python sandbox), reachable from the tailnet only; the toolbox is fenced off from the databases |
 
@@ -196,7 +197,7 @@ homelab-infra/
 ├── observability/         prometheus · loki · tempo · otel-collector · alloy
 │                          kafka-exporter · mongodb-exporter · grafana (provisioning/, dashboards/)
 ├── gateway/               caddy (Caddyfile) · keycloak (sync.sh: the realm as code) · oauth2-proxy · kube-api · headlamp
-├── llm/                   llm (config.yml: the models) · llm-sd · mcp-inspector
+├── llm/                   llm (config.yml: the models) · llm-sd · mcp-inspector · grafana-mcp · mongodb-mcp · postgres-mcp
 ├── apps/                  yours: homelab-ui · agent-runtime · agent-toolbox (this server's additions only)
 └── templates/             myapi-a: a starting point for a new Python API (not deployed)
 ```
@@ -280,6 +281,8 @@ Sized for one machine with 16 threads and 32 GiB RAM. Memory limits:
 | homelab-ui, kafka-exporter, PostgREST, oauth2-proxy, kube-api | 128 MiB each |
 | Headlamp | 256 MiB |
 | mongodb-exporter, llm-sd, db-migrate | 64 MiB each |
+| grafana-mcp | 128 MiB |
+| mongodb-mcp, postgres-mcp | 384 MiB each |
 
 | Data | Kept for |
 |---|---|

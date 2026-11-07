@@ -69,6 +69,9 @@ Nothing is in git: not the passwords, not `environments/local.yaml` (only the se
 | `tasker-gateway` | `secret` | Caddy → PostgREST |
 | `llm-gateway` | `api-key` | the LLM API on `:8090` |
 | `agent-runtime` | `llm-api-key` | the agent's LLM provider (typed by you) |
+| `mongodb-mcp` | `username`, `password` | MongoDB's MCP server (user `mcp`) |
+| `pg-role-mcp` | `username`, `password` | PostgreSQL's MCP server (role `mcp`) |
+| `grafana-mcp` | `token` | Grafana's MCP server: a Grafana service-account token (typed by you) |
 
 **Read one value:**
 ```bash
@@ -99,7 +102,8 @@ It prints one line per value, `<secret>/<key>: <value>`: every Secret `make secr
 | User | Set in | Created | Password in |
 |---|---|---|---|
 | MongoDB `root`, Keycloak `admin`, Grafana `admin` | `SPECS` in [`scripts/secrets.sh`](scripts/secrets.sh) (`username=<name>`) | by the service, at its first start on an empty volume | Secrets `mongodb`, `keycloak-admin`, `grafana-admin` |
-| PostgreSQL roles `postgrest`, `keycloak` | `SPECS` in `scripts/secrets.sh` and `roles:` in [`repository/postgres/values.yaml.gotmpl`](repository/postgres/values.yaml.gotmpl) (the two names must match) | by the PostgreSQL operator, kept as declared | Secrets `pg-role-postgrest`, `pg-role-keycloak` |
+| PostgreSQL roles `postgrest`, `keycloak`, `mcp` | `SPECS` in `scripts/secrets.sh` and `roles:` in [`repository/postgres/values.yaml.gotmpl`](repository/postgres/values.yaml.gotmpl) (the two names must match) | by the PostgreSQL operator, kept as declared | Secrets `pg-role-postgrest`, `pg-role-keycloak`, `pg-role-mcp` |
+| MongoDB user `mcp` (MongoDB's MCP server) | `SPECS` in `scripts/secrets.sh` (`mongodb-mcp`) | by the `mongodb` release's job, at every deploy (its role follows `mcp.mongodb.write`) | Secret `mongodb-mcp` |
 | PostgreSQL `postgres` (superuser) | PostgreSQL itself | at the cluster's first start | Secret `postgres-superuser`, written by the operator |
 | PostgreSQL `homelab` (owner of the `homelab` database) | `owner: homelab` in the pg-cluster chart (`kube-charts/charts/pg-cluster/values.yaml`); `repository/postgres/values.yaml.gotmpl` doesn't override it | at the cluster's first start only | Secret `postgres-app`, written by the operator |
 | Sign-in accounts | you: `make user-add ACCOUNT=<name>` — raw: `./scripts/users.sh add <name>` | in Keycloak, by that command | Keycloak (hashes only) |

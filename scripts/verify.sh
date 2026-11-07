@@ -22,6 +22,11 @@ contains() { [[ "$1" == *"$2"* ]]; }
 equals() { [[ "$1" == "$2" ]]; }
 not() { ! "$@"; }
 inside() { k exec deploy/caddy -c caddy -- wget -q -T 5 -O - "$@" 2>/dev/null || true; }
+mcp_tools() {
+  k exec deploy/caddy -c caddy -- wget -q -T 20 -O - \
+    --header 'Content-Type: application/json' --header 'Accept: application/json, text/event-stream' \
+    --post-data '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' http://agent-toolbox:8001/mcp 2>/dev/null || true
+}
 series() { inside "http://prometheus:9090/api/v1/query?query=$(jq -rn --arg q "$1" '$q | @uri')" | jq -r '.data.result | length' 2>/dev/null || echo 0; }
 positive() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 > 0 )); }
 psql_homelab() { k exec -i "$(postgres_primary)" -c postgres -- psql -d homelab -X -q -tA -v ON_ERROR_STOP=1 "$@"; }
@@ -194,6 +199,13 @@ expect "agent-toolbox can't reach PostgreSQL" not can_reach agent-toolbox postgr
 expect "agent-toolbox can't reach MongoDB" not can_reach agent-toolbox mongodb 27017
 expect "agent-toolbox can't reach Kafka" not can_reach agent-toolbox kafka 9092
 expect "agent-toolbox can't reach the server itself (its Kubernetes API)" not can_reach agent-toolbox 10.250.0.1 6443
+expect "agent-toolbox reaches Grafana's MCP server" can_reach agent-toolbox grafana-mcp 8000
+expect "agent-toolbox reaches MongoDB's MCP server" can_reach agent-toolbox mongodb-mcp 3000
+expect "agent-toolbox reaches PostgreSQL's MCP server" can_reach agent-toolbox postgres-mcp 8000
+toolbox_tools="$(mcp_tools)"
+for tool in grafana_search_dashboards mongodb_find postgres_execute_sql; do
+  expect "agent-toolbox offers $tool" contains "$toolbox_tools" "\"$tool\""
+done
 
 echo
 if (( errors > 0 )); then red "$errors check(s) failed."; exit 1; fi

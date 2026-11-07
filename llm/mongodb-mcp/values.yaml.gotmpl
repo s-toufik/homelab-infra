@@ -1,0 +1,59 @@
+image:
+  repository: mongodb/mongodb-mcp-server
+  tag: {{ .Values.images.mongodbMcp | quote }}
+
+env:
+  MDB_MCP_CONNECTION_STRING: mongodb://$(MONGO_USER):$(MONGO_PASSWORD)@mongodb:27017/?authSource=admin
+  MDB_MCP_TRANSPORT: http
+  MDB_MCP_HTTP_HOST: 0.0.0.0
+  MDB_MCP_HTTP_PORT: "3000"
+  MDB_MCP_READ_ONLY: {{ not .Values.mcp.mongodb.write | quote }}
+  MDB_MCP_DISABLED_TOOLS: atlas,connect
+  MDB_MCP_TELEMETRY: disabled
+  HOME: /tmp
+secretEnv:
+  MONGO_USER: { secret: mongodb-mcp, key: username }
+  MONGO_PASSWORD: { secret: mongodb-mcp, key: password }
+
+ports:
+  - { name: http, port: 3000 }
+
+probes:
+  readiness:
+    tcpSocket: { port: http }
+    periodSeconds: 10
+  liveness:
+    tcpSocket: { port: http }
+    periodSeconds: 20
+
+resources:
+  requests: { cpu: 20m, memory: 96Mi }
+  limits: { memory: 384Mi }
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+securityContext:
+  readOnlyRootFilesystem: true
+
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp
+
+networkPolicy:
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: agent-toolbox } }
+      ports: [{ protocol: TCP, port: 3000 }]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    - to:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: mongodb } }
+      ports: [{ protocol: TCP, port: 27017 }]

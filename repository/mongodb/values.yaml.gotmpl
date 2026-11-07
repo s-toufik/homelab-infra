@@ -45,3 +45,25 @@ podSecurityContext:
   runAsNonRoot: true
   runAsUser: 999
   runAsGroup: 999
+
+configFiles:
+  mcp:
+    mountPath: /scripts
+    files:
+      mcp-user.js: |
+        {{- readFile "mcp-user.js" | nindent 8 }}
+
+jobs:
+  mcp-user:
+    command: [mongosh, --nodb, --quiet, --file, /scripts/mcp-user.js]
+    configFiles: [mcp]
+    env:
+      MCP_WRITE: {{ .Values.mcp.mongodb.write | quote }}
+    secretEnv:
+      ROOT_USER: { secret: mongodb, key: username }
+      ROOT_PASSWORD: { secret: mongodb, key: password }
+      MCP_USER: { secret: mongodb-mcp, key: username }
+      MCP_PASSWORD: { secret: mongodb-mcp, key: password }
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { memory: 256Mi }

@@ -1,0 +1,58 @@
+image:
+  repository: crystaldba/postgres-mcp
+  tag: {{ .Values.images.postgresMcp | quote }}
+
+command: [postgres-mcp]
+args:
+  - --access-mode={{ if .Values.mcp.postgres.write }}unrestricted{{ else }}restricted{{ end }}
+  - --transport=sse
+  - --sse-host=0.0.0.0
+  - --sse-port=8000
+
+env:
+  DATABASE_URI: postgresql://$(PG_USER):$(PG_PASSWORD)@postgres-rw:5432/homelab?sslmode=require
+  HOME: /tmp
+secretEnv:
+  PG_USER: { secret: pg-role-mcp, key: username }
+  PG_PASSWORD: { secret: pg-role-mcp, key: password }
+
+ports:
+  - { name: http, port: 8000 }
+
+probes:
+  readiness:
+    tcpSocket: { port: http }
+    periodSeconds: 10
+  liveness:
+    tcpSocket: { port: http }
+    periodSeconds: 20
+
+resources:
+  requests: { cpu: 20m, memory: 96Mi }
+  limits: { memory: 384Mi }
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp
+
+networkPolicy:
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: agent-toolbox } }
+      ports: [{ protocol: TCP, port: 8000 }]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    - to:
+        - podSelector: { matchLabels: { cnpg.io/cluster: postgres } }
+      ports: [{ protocol: TCP, port: 5432 }]
