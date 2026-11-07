@@ -42,7 +42,8 @@ Each group is a folder and a label of the release train ([`helmfile.yaml.gotmpl`
 | **[gateway/](gateway)** | [Caddy](gateway/caddy/README.md) | HTTPS with a Tailscale certificate, one entry point for every web tool and API |
 | | [Keycloak](gateway/keycloak/README.md) | Accounts and the sign-in page: Argon2id password hashes, 90-day passwords, lockout; managed from the terminal only |
 | | oauth2-proxy | Answers Caddy's "is this browser signed in?" for every request |
-| | kube-api | `kubectl proxy` with cluster-admin rights, reachable from Caddy only: homelab-ui's Kubernetes page, for accounts with the `admin` role |
+| | kube-api | `kubectl proxy` with cluster-admin rights, reachable from Caddy and Headlamp only: homelab-ui's Kubernetes page, for accounts with the `admin` role |
+| | Headlamp | The Kubernetes dashboard on `:4466`, admins only, through kube-api (no token of its own) |
 | **[llm/](llm)** | [LLM (llama-swap)](llm/llm/README.md) · llm-sd | Local models behind an OpenAI-compatible API, plus a playground; llm-sd tells Prometheus which models are loaded |
 | | [MCP Inspector](llm/mcp-inspector/README.md) | Lists and tries the toolbox's tools in the browser, behind the sign-in |
 | **[apps/](apps)** — yours, each from its own repository | homelab-ui | The front door: a control center, a **Status** page, every tool rebuilt as its own page (dashboards, metrics, logs, traces, Kafka, models, tools, account, Kubernetes), the agent beside every page, and Tasker |
@@ -82,6 +83,8 @@ SIGN-IN — every browser request
                        ├─ :8443  ─► keycloak  (sign-in and account pages; /admin blocked)
                        ├─ :3000  ─► grafana   (signs in with Keycloak itself, roles mapped)
                        ├─ :6274  ─► mcp-inspector ─► agent-toolbox
+                       ├─ :4466  ─► headlamp ─► kube-api  (admin only)
+                       ├─ :8100  ─► agent-runtime  (its API and /docs over HTTPS)
                        └─ :9090 :8080 :12345 :8090 :3100 :3200 :9308
                                  ─► prometheus · kafka-ui · alloy · llm · loki · tempo · kafka-exporter
 
@@ -140,7 +143,8 @@ Every web tool is on `https://<HOMELAB_DOMAIN>:<port>` behind one sign-in (`HOME
 | Loki / Tempo APIs | `https://<HOMELAB_DOMAIN>:3100/ready` · `:3200/ready` |
 | kafka-exporter | `https://<HOMELAB_DOMAIN>:9308/metrics` |
 | MCP Inspector (agent-toolbox's tools) | `https://<HOMELAB_DOMAIN>:6274` |
-| Agent API docs (tailnet, no sign-in) | `http://<HOMELAB_DOMAIN>:8000/docs` |
+| Agent API docs (signed in) | `https://<HOMELAB_DOMAIN>:8100/docs` |
+| Headlamp, the Kubernetes dashboard (admins) | `https://<HOMELAB_DOMAIN>:4466` |
 
 **Connect your apps**
 
@@ -191,7 +195,7 @@ homelab-infra/
 ├── message-broker/        kafka · kafka-ui
 ├── observability/         prometheus · loki · tempo · otel-collector · alloy
 │                          kafka-exporter · mongodb-exporter · grafana (provisioning/, dashboards/)
-├── gateway/               caddy (Caddyfile) · keycloak (sync.sh: the realm as code) · oauth2-proxy · kube-api
+├── gateway/               caddy (Caddyfile) · keycloak (sync.sh: the realm as code) · oauth2-proxy · kube-api · headlamp
 ├── llm/                   llm (config.yml: the models) · llm-sd · mcp-inspector
 ├── apps/                  yours: homelab-ui · agent-runtime · agent-toolbox (this server's additions only)
 └── templates/             myapi-a: a starting point for a new Python API (not deployed)
@@ -274,6 +278,7 @@ Sized for one machine with 16 threads and 32 GiB RAM. Memory limits:
 | OTel Collector, agent-runtime, agent-toolbox, backups | 512 MiB each |
 | Caddy, MCP Inspector | 256 MiB each |
 | homelab-ui, kafka-exporter, PostgREST, oauth2-proxy, kube-api | 128 MiB each |
+| Headlamp | 256 MiB |
 | mongodb-exporter, llm-sd, db-migrate | 64 MiB each |
 
 | Data | Kept for |

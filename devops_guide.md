@@ -981,7 +981,7 @@ Apps get the new `app` chart with their next release (their CI builds on the lat
 - give: `make user-admin ACCOUNT=<name>` — raw: `./scripts/users.sh admin <name>`
 - take: `make user-unadmin ACCOUNT=<name>` — raw: `./scripts/users.sh unadmin <name>`
 - The person signs out and in again.
-- What it opens: homelab-ui's Kubernetes page, Kafka changes (topics, messages), unloading a model, Grafana's Admin role.
+- What it opens: homelab-ui's Kubernetes page, Headlamp (`:4466`), Kafka changes (topics, messages), unloading a model, Grafana's Admin role.
 
 **Block an account for a while**
 1. `make user-disable ACCOUNT=<name>` — raw: `./scripts/users.sh disable <name>`
@@ -1122,7 +1122,8 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 - homelab-ui → **Agent**.
 
 **Call the agent API** (from a tailnet device)
-- `http://<HOMELAB_DOMAIN>:8000/docs`
+- In a browser, signed in: `https://<HOMELAB_DOMAIN>:8100/docs`
+- From Postman or a script: `http://<HOMELAB_DOMAIN>:8000` (plain HTTP, no sign-in)
 
 **Connect an MCP client to agent-toolbox** (from a tailnet device)
 - `http://<HOMELAB_DOMAIN>:8001/mcp`

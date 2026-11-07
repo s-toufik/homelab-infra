@@ -29,6 +29,8 @@ Browser ── HTTPS ──► caddy ── "signed in?" ──► oauth2-proxy 
                             kafka-ui, alloy, loki, tempo, kafka-exporter (signed in)
   :8090                     llm             (signed in, or `Authorization: Bearer <LLM_GATEWAY_API_KEY>`)
   :6274                     mcp-inspector   (signed in; Host rewritten to mcp-inspector:6274) ─► agent-toolbox
+  :4466                     headlamp        (signed in, admin only) ─► kube-api ─► Kubernetes API
+  :8100                     agent-runtime   (signed in; its API and /docs over HTTPS, :8000 stays plain HTTP for tailnet clients)
 ```
 
 ## Certificate

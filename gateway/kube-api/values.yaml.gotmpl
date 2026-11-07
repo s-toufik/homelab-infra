@@ -50,4 +50,5 @@ networkPolicy:
   ingress:
     - from:
         - podSelector: { matchLabels: { app.kubernetes.io/name: caddy } }
+        - podSelector: { matchLabels: { app.kubernetes.io/name: headlamp } }
       ports: [{ protocol: TCP, port: 8001 }]

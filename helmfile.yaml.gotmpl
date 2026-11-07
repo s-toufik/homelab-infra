@@ -154,6 +154,11 @@ releases:
     inherit: [{ template: homelab }]
     labels: { group: gateway }
 
+  - name: headlamp
+    inherit: [{ template: homelab }]
+    labels: { group: gateway }
+    needs: [homelab/kube-api]
+
   - name: llm
     inherit: [{ template: homelab }]
     labels: { group: llm }

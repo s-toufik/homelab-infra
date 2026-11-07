@@ -1,0 +1,47 @@
+image:
+  repository: ghcr.io/headlamp-k8s/headlamp
+  tag: {{ .Values.images.headlamp | quote }}
+
+args:
+  - -kubeconfig=/etc/headlamp/kubeconfig.yaml
+  - -port=4466
+
+ports:
+  - { name: http, port: 4466 }
+
+probes:
+  readiness:
+    httpGet: { path: /, port: http }
+    periodSeconds: 10
+  liveness:
+    httpGet: { path: /, port: http }
+    periodSeconds: 20
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { memory: 256Mi }
+
+configFiles:
+  kubeconfig:
+    mountPath: /etc/headlamp
+    files:
+      kubeconfig.yaml: |
+        {{- readFile "kubeconfig.yaml" | nindent 8 }}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 100
+  runAsGroup: 101
+
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp
+
+networkPolicy:
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: caddy } }
+      ports: [{ protocol: TCP, port: 4466 }]

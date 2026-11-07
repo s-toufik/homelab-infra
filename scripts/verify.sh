@@ -138,8 +138,9 @@ for api in prometheus/api/v1/targets loki/loki/api/v1/labels tempo/api/search/ta
   expect "signed out, the APIs answer 401: /api/${api%%/*}" equals "$(http_status "$site/api/$api")" "401"
 done
 expect "kube-api reaches the Kubernetes API" equals "$(inside http://kube-api:8001/readyz)" "ok"
-expect "only Caddy reaches kube-api" not can_reach agent-runtime kube-api 8001
-for port in 9090 8080 12345 3100 3200 9308 6274; do
+expect "only Caddy and Headlamp reach kube-api" not can_reach agent-runtime kube-api 8001
+expect "Headlamp answers" contains "$(inside http://headlamp:4466/)" "Headlamp"
+for port in 9090 8080 12345 3100 3200 9308 6274 4466 8100; do
   expect "port $port sends signed-out visitors to the sign-in page" \
     contains "$(redirect_to "https://${domain}:${port}/")" "$site/oauth2/sign_in"
 done

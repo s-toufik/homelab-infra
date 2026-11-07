@@ -237,6 +237,7 @@
 					header_up -Cookie
 				}
 			}
+			import health_route headlamp headlamp:4466 /
 			import health_route grafana grafana:3000 /api/health
 			import health_route llm llm:8080 /health
 			import health_route llm-sd llm-sd:8000 /targets
@@ -321,6 +322,29 @@
 		reverse_proxy mcp-inspector:6274 {
 			flush_interval -1
 			header_up Host mcp-inspector:6274
+			header_up -Cookie
+		}
+	}
+}
+
+{$HOMELAB_DOMAIN}:4466 {
+	route {
+		import strip_identity
+		import signed_in_page
+		import admin_only *
+		reverse_proxy headlamp:4466 {
+			flush_interval -1
+			header_up -Cookie
+		}
+	}
+}
+
+{$HOMELAB_DOMAIN}:8100 {
+	route {
+		import strip_identity
+		import signed_in_page
+		reverse_proxy agent-runtime:8000 {
+			flush_interval -1
 			header_up -Cookie
 		}
 	}
