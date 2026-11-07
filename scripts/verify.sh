@@ -132,7 +132,7 @@ echo "==> gateway: Caddy, Keycloak, oauth2-proxy"
 expect "HTTPS answers with a trusted certificate ($site)" \
   equals "$(curl -fsS --max-time 10 "$site/healthz" 2>/dev/null || true)" "OK"
 expect "plain HTTP is refused" equals "$(http_status "http://${domain}:443/")" "400"
-bindings="$(kubectl get pods -A -o jsonpath='{range .items[*]}{range .spec.containers[*].ports[?(@.hostPort)]}{.hostIP}:{.hostPort}{"\n"}{end}{end}' | sort -u)"
+bindings="$(kubectl get pods -A -o json | jq -r '.items[] | select(.spec.hostNetwork != true) | .spec.containers[].ports[]? | select(.hostPort) | "\(.hostIP // ""):\(.hostPort)"' | sort -u)"
 others="$(grep -v "^${address}:" <<<"$bindings" | paste -sd ' ' - || true)"
 expect "every published port listens on the Tailscale address ${address} only${others:+ (also: $others)}" equals "$others" ""
 expect "signed out, the APIs answer 401: health" equals "$(http_status "$site/api/health/caddy")" "401"

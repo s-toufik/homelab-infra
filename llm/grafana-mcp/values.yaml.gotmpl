@@ -6,6 +6,7 @@ command: [/app/mcp-grafana]
 args:
   - --transport=streamable-http
   - --address=0.0.0.0:8000
+  - --allowed-hosts=grafana-mcp:8000
   - --enabled-tools={{ .Values.mcp.grafana.categories }}
 {{- if not .Values.mcp.grafana.write }}
   - --disable-write
@@ -13,6 +14,7 @@ args:
 
 env:
   GRAFANA_URL: http://grafana:3000
+  GRAFANA_USAGE_STATS: disabled
 secretEnv:
   GRAFANA_SERVICE_ACCOUNT_TOKEN: { secret: grafana-mcp, key: token }
 
