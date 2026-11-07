@@ -150,6 +150,10 @@ releases:
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, oauth2-proxy] }
 
+  - name: kube-api
+    inherit: [{ template: homelab }]
+    labels: { group: gateway }
+
   - name: llm
     inherit: [{ template: homelab }]
     labels: { group: llm }

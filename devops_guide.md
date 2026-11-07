@@ -981,6 +981,7 @@ Apps get the new `app` chart with their next release (their CI builds on the lat
 - give: `make user-admin ACCOUNT=<name>` — raw: `./scripts/users.sh admin <name>`
 - take: `make user-unadmin ACCOUNT=<name>` — raw: `./scripts/users.sh unadmin <name>`
 - The person signs out and in again.
+- What it opens: homelab-ui's Kubernetes page, Kafka changes (topics, messages), unloading a model, Grafana's Admin role.
 
 **Block an account for a while**
 1. `make user-disable ACCOUNT=<name>` — raw: `./scripts/users.sh disable <name>`

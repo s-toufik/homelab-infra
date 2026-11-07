@@ -1,0 +1,53 @@
+image:
+  repository: registry.k8s.io/kubectl
+  tag: {{ .Values.images.kubectl | quote }}
+
+args:
+  - proxy
+  - --address=0.0.0.0
+  - --port=8001
+  - --accept-hosts=^kube-api(:8001)?$
+  - --reject-paths=^/api/.*/pods/.*/attach
+
+env:
+  HOME: /tmp
+
+ports:
+  - { name: http, port: 8001 }
+
+probes:
+  readiness:
+    tcpSocket: { port: http }
+    periodSeconds: 10
+  liveness:
+    tcpSocket: { port: http }
+    periodSeconds: 20
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+rbac:
+  clusterRules:
+    - { apiGroups: ["*"], resources: ["*"], verbs: ["*"] }
+    - { nonResourceURLs: ["*"], verbs: ["*"] }
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+securityContext:
+  readOnlyRootFilesystem: true
+
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp
+
+networkPolicy:
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: caddy } }
+      ports: [{ protocol: TCP, port: 8001 }]

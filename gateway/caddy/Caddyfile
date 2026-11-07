@@ -39,6 +39,31 @@
 	}
 }
 
+(admin_only) {
+	forward_auth {args[0]} oauth2-proxy:4180 {
+		uri /oauth2/auth?allowed_groups=role:admin
+		header_up X-Real-IP {remote_host}
+
+		@signed_out status 401
+		handle_response @signed_out {
+			respond "Sign in required" 401
+		}
+	}
+}
+
+(no_cross_site_writes) {
+	@cross_site_write {
+		not method GET HEAD OPTIONS
+		not header X-Homelab-Request 1
+	}
+	respond @cross_site_write "Missing X-Homelab-Request" 403
+}
+
+(read_only) {
+	@write not method GET HEAD
+	respond @write "Read-only" 405
+}
+
 (health_route) {
 	handle /api/health/{args[0]} {
 		rewrite * {args[2]}
@@ -93,9 +118,98 @@
 			}
 
 			handle_path /api/prometheus/* {
-				@blocked not path /api/v1/query /api/v1/query_range
+				@blocked not path /api/v1/query /api/v1/query_range /api/v1/series /api/v1/labels /api/v1/label/*/values /api/v1/targets /api/v1/rules /api/v1/alerts /api/v1/metadata
 				respond @blocked 404
+				import read_only
 				reverse_proxy prometheus:9090 {
+					header_up -Cookie
+				}
+			}
+
+			handle_path /api/loki/* {
+				@blocked not path /loki/api/v1/query /loki/api/v1/query_range /loki/api/v1/labels /loki/api/v1/label/*/values /loki/api/v1/series
+				respond @blocked 404
+				import read_only
+				reverse_proxy loki:3100 {
+					header_up -Cookie
+				}
+			}
+
+			handle_path /api/tempo/* {
+				@blocked not path /api/search /api/search/tags /api/v2/search/tags /api/v2/search/tag/*/values /api/traces/* /api/v2/traces/*
+				respond @blocked 404
+				import read_only
+				reverse_proxy tempo:3200 {
+					header_up -Cookie
+				}
+			}
+
+			handle_path /api/alloy/* {
+				@blocked not path /api/v0/web/components /api/v0/web/components/*
+				respond @blocked 404
+				import read_only
+				reverse_proxy alloy:12346 {
+					header_up -Cookie
+				}
+			}
+
+			handle_path /api/kafka/* {
+				@blocked not path /api/clusters /api/clusters/*
+				respond @blocked 404
+				import no_cross_site_writes
+				@kafka_write not method GET HEAD
+				import admin_only @kafka_write
+				reverse_proxy kafka-ui:8080 {
+					flush_interval -1
+					header_up -Cookie
+				}
+			}
+
+			handle_path /api/llm/* {
+				@blocked not path /v1/models /v1/chat/completions /running /logs /logs/stream /logs/stream/* /api/models/unload /api/models/unload/*
+				respond @blocked 404
+				import no_cross_site_writes
+				@llm_unload path /api/models/unload /api/models/unload/*
+				import admin_only @llm_unload
+				reverse_proxy llm:8080 {
+					flush_interval -1
+					header_up -Cookie
+				}
+			}
+
+			handle_path /api/toolbox/* {
+				@blocked not path /mcp /mcp/*
+				respond @blocked 404
+				import no_cross_site_writes
+				reverse_proxy agent-toolbox:8001 {
+					flush_interval -1
+					header_up Host agent-toolbox:8001
+					header_up -Cookie
+				}
+			}
+
+			handle_path /api/account/* {
+				import no_cross_site_writes
+				forward_auth oauth2-proxy:4180 {
+					uri /oauth2/auth
+					header_up X-Real-IP {remote_host}
+					copy_headers X-Auth-Request-Access-Token
+				}
+				rewrite * /realms/homelab/account{uri}
+				reverse_proxy keycloak:8080 {
+					header_up Authorization "Bearer {http.request.header.X-Auth-Request-Access-Token}"
+					header_up -X-Auth-Request-Access-Token
+					header_up -Cookie
+				}
+			}
+
+			handle_path /api/kube/* {
+				import admin_only *
+				import no_cross_site_writes
+				reverse_proxy kube-api:8001 {
+					flush_interval -1
+					header_up Host kube-api:8001
+					header_up -Authorization
 					header_up -Cookie
 				}
 			}
@@ -115,6 +229,13 @@
 			import health_route tempo tempo:3200 /ready
 			import health_route otel-collector otel-collector:13133 /
 			import health_route alloy alloy:12346 /-/ready
+			handle /api/health/kube-api {
+				rewrite * /readyz
+				reverse_proxy kube-api:8001 {
+					header_up Host kube-api:8001
+					header_up -Cookie
+				}
+			}
 			import health_route grafana grafana:3000 /api/health
 			import health_route llm llm:8080 /health
 			import health_route llm-sd llm-sd:8000 /targets

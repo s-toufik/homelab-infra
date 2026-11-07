@@ -18,11 +18,13 @@ args:
   - --upstream=static://202
   - --reverse-proxy=true
   - --set-xauthrequest=true
+  - --pass-access-token=true
   - --skip-provider-button=true
   - --cookie-name=__Host-homelab
   - --cookie-secure=true
   - --cookie-samesite=lax
   - --cookie-expire=8h
+  - --cookie-refresh=4m
   - --whitelist-domain={{ .Values.domain }}
   - --whitelist-domain={{ .Values.domain }}:*
 

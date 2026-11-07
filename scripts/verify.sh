@@ -133,6 +133,12 @@ expect "every published port listens on the Tailscale address ${address} only${o
 expect "signed out, the APIs answer 401: health" equals "$(http_status "$site/api/health/caddy")" "401"
 expect "signed out, the APIs answer 401: Tasker" equals "$(http_status "$site/api/tasker/workflows")" "401"
 expect "signed out, the APIs answer 401: agent" equals "$(http_status "$site/api/agent/v1/models")" "401"
+for api in prometheus/api/v1/targets loki/loki/api/v1/labels tempo/api/search/tags alloy/api/v0/web/components \
+  kafka/api/clusters llm/running toolbox/mcp account/ kube/api/v1/namespaces; do
+  expect "signed out, the APIs answer 401: /api/${api%%/*}" equals "$(http_status "$site/api/$api")" "401"
+done
+expect "kube-api reaches the Kubernetes API" equals "$(inside http://kube-api:8001/readyz)" "ok"
+expect "only Caddy reaches kube-api" not can_reach agent-runtime kube-api 8001
 for port in 9090 8080 12345 3100 3200 9308 6274; do
   expect "port $port sends signed-out visitors to the sign-in page" \
     contains "$(redirect_to "https://${domain}:${port}/")" "$site/oauth2/sign_in"

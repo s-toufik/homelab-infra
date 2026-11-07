@@ -10,7 +10,15 @@ Browser ── HTTPS ──► caddy ── "signed in?" ──► oauth2-proxy 
   :443   /healthz           answered by Caddy ("OK", no sign-in): HTTPS and certificate check
          /                  homelab-ui
          /api/agent/…       agent-runtime   (/v1/*, /actuator/health/* only; streaming on)
-         /api/prometheus/…  prometheus      (/api/v1/query, /api/v1/query_range only)
+         /api/prometheus/…  prometheus      (queries, labels, targets, rules, alerts; GET only)
+         /api/loki/…        loki            (queries, labels, series; GET only)
+         /api/tempo/…       tempo           (search, tags, traces; GET only)
+         /api/alloy/…       alloy           (/api/v0/web/components; GET only)
+         /api/kafka/…       kafka-ui        (/api/clusters/*; changes: admin only)
+         /api/llm/…         llm             (/v1/models, /v1/chat/completions, /running, /logs*; unload: admin only)
+         /api/toolbox/…     agent-toolbox   (/mcp; Host rewritten to agent-toolbox:8001)
+         /api/account/…     keycloak        (/realms/homelab/account/*, with the session's access token)
+         /api/kube/…        kube-api        (the Kubernetes API; admin only)
          /api/tasker/…      postgrest       (+ X-Gateway-Secret)
          /api/health/<svc>  every container's health endpoint (homelab-ui's Status page)
          /oauth2/…          oauth2-proxy    (sign in, sign out, /oauth2/userinfo)
@@ -35,6 +43,8 @@ Caddy's ports are host ports bound to the Tailscale address only: the tailnet's 
 
 - Cookie `__Host-homelab`: encrypted and signed with `OAUTH2_PROXY_COOKIE_SECRET`, `HttpOnly`, `Secure`, `SameSite=Lax`, valid 8 hours, shared by every port of `HOMELAB_DOMAIN` (browsers don't scope cookies by port), so one sign-in covers every tool. It holds no password.
 - Disabling an account ends its Keycloak sessions at once, and its homelab session at the latest when the 8 hours are up. `make sessions-revoke` changes the cookie key, so every session ends immediately.
+- The homelab-ui APIs added for its tool pages refuse a change (anything but GET, HEAD, OPTIONS) without the header `X-Homelab-Request: 1`, which a page on another site can't send. Changes to Kafka, unloading a model and the whole Kubernetes API also need the realm role `admin` (`/oauth2/auth?allowed_groups=role:admin`, else 403).
+- `/api/account/` sends Keycloak the session's access token (`--pass-access-token`); oauth2-proxy refreshes it every 4 minutes (`--cookie-refresh=4m`), before Keycloak's 5-minute lifetime ends.
 - Caddy deletes `Remote-User`, `X-Gateway-Secret` and the `X-Auth-Request-*` headers from every incoming request before adding its own, and drops the browser's cookies before proxying to anything but Grafana and Keycloak.
 
 ## Adding a route or a tool

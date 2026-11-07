@@ -8,6 +8,7 @@ images:
   caddy: 2.11.7
   keycloak: 26.8.1
   oauth2Proxy: v7.15.5
+  kubectl: v1.36.5
   postgres: 18.6-standard-trixie
   dbmate: 2.36.0
   postgrest: v16.5

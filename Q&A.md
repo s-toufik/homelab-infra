@@ -6,7 +6,10 @@ Short answers to everyday questions. Run commands on the server, in the `homelab
 - [Where are the passwords stored?](#where-are-the-passwords-stored)
 - [Where are the Secrets stored, and how do I read a password?](#where-are-the-secrets-stored-and-how-do-i-read-a-password)
 - [How do I see every password on the server?](#how-do-i-see-every-password-on-the-server)
-- [How do I connect to MongoDB from Compass?](#how-do-i-connect-to-mongodb-from-compass)
+- [Where are the usernames set?](#where-are-the-usernames-set)
+- [How do I connect pgAdmin 4 to PostgreSQL?](#how-do-i-connect-pgadmin-4-to-postgresql)
+- [Which PostgreSQL user should my app use?](#which-postgresql-user-should-my-app-use)
+- [How do I connect to MongoDB?](#how-do-i-connect-to-mongodb)
 - [How do I see the logs?](#how-do-i-see-the-logs)
 - [How do I stop everything?](#how-do-i-stop-everything)
 - [How do I restart everything?](#how-do-i-restart-everything)
@@ -90,22 +93,123 @@ It prints one line per value, `<secret>/<key>: <value>`: every Secret `make secr
 - The values are in your terminal: clear it after (`clear`), and never paste them into git or a chat.
 - One Secret only: [Read every key of a Secret](#where-are-the-secrets-stored-and-how-do-i-read-a-password).
 
-## How do I connect to MongoDB from Compass?
+## Where are the usernames set?
 
-MongoDB answers on the server's port 27017, from the tailnet only. The account is MongoDB's root, in Secret `mongodb`.
+| User | Set in | Created | Password in |
+|---|---|---|---|
+| MongoDB `root`, Keycloak `admin`, Grafana `admin` | `SPECS` in [`scripts/secrets.sh`](scripts/secrets.sh) (`username=<name>`) | by the service, at its first start on an empty volume | Secrets `mongodb`, `keycloak-admin`, `grafana-admin` |
+| PostgreSQL roles `postgrest`, `keycloak` | `SPECS` in `scripts/secrets.sh` and `roles:` in [`repository/postgres/values.yaml.gotmpl`](repository/postgres/values.yaml.gotmpl) (the two names must match) | by the PostgreSQL operator, kept as declared | Secrets `pg-role-postgrest`, `pg-role-keycloak` |
+| PostgreSQL `postgres` (superuser) | PostgreSQL itself | at the cluster's first start | Secret `postgres-superuser`, written by the operator |
+| PostgreSQL `homelab` (owner of the `homelab` database) | `owner: homelab` in the pg-cluster chart (`kube-charts/charts/pg-cluster/values.yaml`); `repository/postgres/values.yaml.gotmpl` doesn't override it | at the cluster's first start only | Secret `postgres-app`, written by the operator |
+| Sign-in accounts | you: `make user-add ACCOUNT=<name>` — raw: `./scripts/users.sh add <name>` | in Keycloak, by that command | Keycloak (hashes only) |
+
+- Editing a username afterwards changes nothing: `make secrets` keeps a Secret's stored values, and the services and the operator read them at their first start only.
+- Who owns what in PostgreSQL: `homelab` owns the database `homelab` but none of its tables; the schema `tasker` and its tables belong to `postgres` (the migrations run as `postgres`); `keycloak` owns the database `keycloak` and its tables. Nothing logs in as `homelab`.
+
+## How do I connect pgAdmin 4 to PostgreSQL?
+
+Use `postgres`: it sees every table. PostgreSQL isn't open to the tailnet, so pgAdmin goes through SSH to the server.
+
+1. **Get the password.** On the server: `make show-secrets` — raw: `./scripts/secrets.sh show`. The line `postgres-superuser/password` is it.
+2. **Get PostgreSQL's address inside the cluster.** On the server:
+   ```bash
+   kubectl -n homelab get svc postgres-rw -o jsonpath='{.spec.clusterIP}'; echo
+   ```
+   It prints `10.43.x.x`. It stays the same unless the `postgres` release is removed.
+3. **In pgAdmin 4: Object Explorer → right-click Servers → Register → Server.** General tab: a name, e.g. `homelab`. Then the **SSH Tunnel** tab: Use SSH tunneling on, Tunnel host `<HOMELAB_DOMAIN>`, port `22`, Username your user on the server, Authentication Identity file (your SSH key).
+4. **Connection tab.** Host name the `10.43.x.x` address, Port `5432`, Maintenance database `homelab`, Username `postgres`, Password from step 1, Save password on.
+5. **Save.** pgAdmin lists the databases `homelab` and `keycloak`; the Tasker tables are in homelab → Schemas → tasker → Tables.
+
+- `postgres` can change and drop anything: use it to look and for admin work, never in an app.
+- pgAdmin says `connection timed out`: Tailscale isn't on on your Mac, or the address changed (step 2 again).
+
+## Which PostgreSQL user should my app use?
+
+Its own: one user per app, which can only touch its own schema and what you grant it. Never `postgres` (everything) or `homelab` (owns the whole database). For an app `myapi`:
+
+1. **Add its Secret to `SPECS` in [`scripts/secrets.sh`](scripts/secrets.sh)**, and `pg-role-myapi/password` to `ROTATABLE`:
+   ```
+   "pg-role-myapi|kubernetes.io/basic-auth|username=myapi password:24"
+   ```
+   Then `make secrets` — raw: `./scripts/secrets.sh`. Secret `pg-role-myapi` is created with a generated password.
+2. **Declare the user under `roles:` in [`repository/postgres/values.yaml.gotmpl`](repository/postgres/values.yaml.gotmpl):**
+   ```yaml
+   - name: myapi
+     login: true
+     passwordSecret: { name: pg-role-myapi }
+   ```
+   Then `make apply R=postgres` — raw: `helmfile -l name=postgres apply`. The operator creates `myapi` with that password.
+3. **Give it its schema in a migration.** `make migration-new NAME=create_myapi_schema`, write in the new file:
+   ```sql
+   -- migrate:up
+   CREATE SCHEMA myapi AUTHORIZATION myapi;
+
+   -- migrate:down
+   DROP SCHEMA myapi CASCADE;
+   ```
+   Then `make migrate` — raw: `helmfile -l name=db-migrate sync`. `myapi` reads and writes everything in schema `myapi`, nothing else. To let it use other tables, grant them in the same migration, e.g. `GRANT SELECT ON tasker.workflows TO myapi;`.
+4. **Point the app at it** in its repository's `devops/helm/values.yml`:
+   ```yaml
+   env:
+     DB_HOST: postgres-rw
+     DB_PORT: "5432"
+     DB_NAME: homelab
+   secretEnv:
+     DB_USER: { secret: pg-role-myapi, key: username }
+     DB_PASSWORD: { secret: pg-role-myapi, key: password }
+   ```
+   Use the env variable names your app reads. Release the app; it connects as `myapi`.
+
+| Who | Username | Password in | Can |
+|---|---|---|---|
+| You, in pgAdmin | `postgres` | `postgres-superuser` | everything |
+| Each app or API | its own (`myapi`) | `pg-role-myapi` | its schema and what you grant it |
+| PostgREST (Tasker) | `postgrest` | `pg-role-postgrest` | the Tasker tables, only the signed-in user's rows |
+| Keycloak | `keycloak` | `pg-role-keycloak` | the database `keycloak` |
+| `homelab` | `homelab` | `postgres-app` | owns the database `homelab`; unused |
+
+## How do I connect to MongoDB?
+
+MongoDB answers on the server's port 27017, from the tailnet only. The account is MongoDB's root: username `root`, password in Secret `mongodb`.
+
+**From Compass, on your Mac**
 
 1. **Copy the password to your Mac's clipboard.** On your Mac:
    ```bash
    ssh <user>@<HOMELAB_DOMAIN> 'KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl -n homelab get secret mongodb -o jsonpath={.data.password} | base64 -d' | pbcopy
    ```
-   Nothing is printed; the password is in the clipboard. The username is `root`.
+   Nothing is printed; the password is in the clipboard.
 2. **In Compass, click Add new connection** and set the URI to `mongodb://<HOMELAB_DOMAIN>:27017/?authSource=admin`, without the password.
 3. **Open Advanced Connection Options → Authentication → Username/Password.** Username `root`, paste the password, Authentication Database `admin`.
-4. **Save & Connect.** Compass lists the databases. It keeps the password on your Mac, so you do this once.
+4. **Save & Connect.** Compass lists the databases (`agent_runtime` is the agent's). It keeps the password on your Mac, so you do this once.
 
-- Compass says `connection timed out`: Tailscale isn't on on your Mac, or MongoDB isn't running (`make status` on the server).
-- Compass says `Authentication failed`: the password was rotated or mistyped; copy it again (step 1).
-- Same for any client (mongosh, a script): `mongodb://root:<password>@<HOMELAB_DOMAIN>:27017/?authSource=admin`. Keep that string out of git.
+**From mongosh, on your Mac**
+
+```bash
+mongosh "mongodb://root@<HOMELAB_DOMAIN>:27017/?authSource=admin"
+```
+It asks for the password: paste it (step 1 above).
+
+**From the server**
+
+`make mongosh` — raw: `kubectl -n homelab exec -it mongodb-0 -- sh -c 'mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin'`. No password to type.
+
+**From an app in the cluster**
+
+Host `mongodb`, port `27017`, authentication database `admin`, the user and password from Secret `mongodb`, as agent-runtime does in its `devops/helm/values.yml`:
+```yaml
+env:
+  DB_MONGO_CHECKPOINT_HOST: mongodb
+  DB_MONGO_CHECKPOINT_PORT: "27017"
+secretEnv:
+  DB_MONGO_CHECKPOINT_USERNAME: { secret: mongodb, key: username }
+  DB_MONGO_CHECKPOINT_PASSWORD: { secret: mongodb, key: password }
+```
+Your app uses the env variable names it reads.
+
+- `connection timed out`: Tailscale isn't on on your Mac, or MongoDB isn't running (`make status` on the server).
+- `Authentication failed`: the password was rotated or mistyped; copy it again (step 1).
+- A connection string with the password in it (`mongodb://root:<password>@…`) stays out of git and chats.
 
 ## How do I see the logs?
 
