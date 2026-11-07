@@ -184,6 +184,7 @@
 				reverse_proxy agent-toolbox:8001 {
 					flush_interval -1
 					header_up Host agent-toolbox:8001
+					header_up -Origin
 					header_up -Cookie
 				}
 			}
