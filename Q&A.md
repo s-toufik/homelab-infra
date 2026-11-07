@@ -14,6 +14,7 @@ Short answers to everyday questions. Run commands on the server, in the `homelab
 - [How do I stop everything?](#how-do-i-stop-everything)
 - [How do I restart everything?](#how-do-i-restart-everything)
 - [How do I redeploy, reinstall or scale an app?](#how-do-i-redeploy-reinstall-or-scale-an-app)
+- [I rebuilt a release under the same tag: how does the server pick it up?](#i-rebuilt-a-release-under-the-same-tag-how-does-the-server-pick-it-up)
 - [How do I change a pod's settings and redeploy it?](#how-do-i-change-a-pods-settings-and-redeploy-it)
 
 ---
@@ -289,6 +290,25 @@ kubectl -n homelab delete pod -l cnpg.io/cluster=postgres      # PostgreSQL: its
 - For a moment: `kubectl -n homelab scale deploy/<release> --replicas=2`; back with `--replicas=1`. git doesn't know about it, so set it back yourself.
 - `replicas: 0` stops a release without uninstalling it.
 - More than one pod works only for releases without a volume or a published port: homelab-ui, postgrest, oauth2-proxy, kafka-ui. The others (databases, Kafka, Caddy, the agent, the LLM…) run one pod.
+
+## I rebuilt a release under the same tag: how does the server pick it up?
+
+GitHub has the new build under the old version (`1.1.2` here), but the server keeps the old one in two caches: helmfile's chart cache (`Skipping refresh for chart … shared cache` in `make apply`), and k3s's images (pods pull an image only if it isn't there yet, `imagePullPolicy: IfNotPresent`). On the server, in `homelab-infra`:
+
+1. **Forget the cached chart:** `helmfile cache cleanup`. The next deploy downloads the chart again.
+2. **Remove the cached image:** `sudo k3s crictl rmi docker.io/toufik142/homelab-ui:1.1.2`. It prints `Deleted: …`; if the image is in use, do step 4, then this step and step 4 again.
+3. **Deploy the downloaded chart:** `make sync R=homelab-ui` — raw: `helmfile -l name=homelab-ui sync`. It ends with `UPDATED RELEASES: homelab-ui`.
+4. **Replace the pods, so they pull the image:** `kubectl -n homelab rollout restart deploy/homelab-ui`. `make ps` shows a new homelab-ui pod.
+5. **Check the pod runs the new build:**
+   ```bash
+   kubectl -n homelab get pod -l app.kubernetes.io/name=homelab-ui -o jsonpath='{.items[0].status.containerStatuses[0].imageID}'; echo
+   ```
+   The `sha256:…` digest matches the one of tag `1.1.2` on Docker Hub, or in the GitHub Actions PUBLISH log.
+6. **Reload the page with Cmd+Shift+R**, so the browser drops the old UI.
+
+- Only the code changed: steps 2, 4, 5 are enough. The chart changed too (`devops/helm/values.yml`): all of them.
+- Same for agent-runtime and agent-toolbox: their release name and image (`toufik142/agent-runtime`, `toufik142/agent-toolbox`).
+- Next time, tag a new version instead (`v1.1.3`, then `apps.homelabUi: 1.1.3` in `environments/versions.yaml`, `make apply R=homelab-ui`): a new number skips both caches, and `make rollback` still knows the previous build.
 
 ## How do I change a pod's settings and redeploy it?
 
