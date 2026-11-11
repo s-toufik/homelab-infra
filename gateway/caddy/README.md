@@ -35,7 +35,7 @@ Browser ── HTTPS ──► caddy ── "signed in?" ──► oauth2-proxy 
 
 ## Certificate
 
-`HOMELAB_DOMAIN` is this machine's Tailscale name (`<machine>.<tailnet>.ts.net`, `domain` in `environments/local.yaml`), with MagicDNS and HTTPS certificates turned on in the Tailscale admin console. Caddy gets the certificate from the server's Tailscale daemon through its socket (mounted into the pod), at the first HTTPS connection. Devices need Tailscale to open the homelab.
+`HOMELAB_DOMAIN` is this machine's Tailscale name (`<machine>.<tailnet>.ts.net`, `domain` in `environments/local.yaml`), with MagicDNS and HTTPS certificates turned on in the Tailscale admin console. Caddy gets the certificate from the server's Tailscale daemon through its socket, at the first HTTPS connection. The pod mounts the folder `/run/tailscale`, not the socket file: tailscaled makes a new socket each time it restarts, and a file mount would keep the old one (`connection refused`, then `tlsv1 alert internal error` in browsers). The folder itself stays across restarts thanks to `RuntimeDirectoryPreserve=restart` in tailscaled's drop-in ([DevOps guide](../../devops_guide.md#8-start-tailscale-and-ssh-at-boot)). Devices need Tailscale to open the homelab.
 
 Inside the cluster, DNS answers `HOMELAB_DOMAIN` with Caddy's Service (the `coredns-custom` ConfigMap this release adds to `kube-system`), so oauth2-proxy and Grafana reach Keycloak's public address through Caddy with the same valid certificate.
 

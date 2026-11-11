@@ -163,9 +163,11 @@ sudo apt install -y curl jq lm-sensors openssh-server nftables
    [Service]
    Restart=always
    RestartSec=5
+   RuntimeDirectoryPreserve=restart
    EOF
    sudo systemctl daemon-reload
    ```
+   `RuntimeDirectoryPreserve=restart` keeps the folder `/run/tailscale` when tailscaled restarts. Caddy mounts that folder to reach Tailscale's socket and get its certificate; a new folder would leave Caddy on the old one.
 2. SSH on:
    ```bash
    sudo systemctl enable ssh
@@ -174,7 +176,7 @@ sudo apt install -y curl jq lm-sensors openssh-server nftables
    ```bash
    sudo systemctl disable --now cups.service cups-browsed.service bluetooth.service ModemManager.service
    ```
-4. Reboot, then check: `systemctl is-active tailscaled` → `active`.
+4. Reboot, then check: `systemctl is-active tailscaled` → `active`, and `systemctl show tailscaled -p RuntimeDirectoryPreserve` → `RuntimeDirectoryPreserve=restart`.
 5. From another tailnet device: `ssh <user>@<tailscale-ip>`.
 
 ## Install Kubernetes
@@ -286,13 +288,16 @@ sysctl fs.inotify.max_user_instances fs.inotify.max_user_watches    # 1024, 5242
    ```bash
    DOMAIN="$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')"
    TSIP="$(tailscale ip -4)"
+   ROUTER="$(ip -4 route show default | awk '{print $3; exit}')"
    sudo mkdir -p /etc/rancher/k3s
+   echo "nameserver ${ROUTER}" | sudo tee /etc/rancher/k3s/resolv.conf
    sudo tee /etc/rancher/k3s/config.yaml >/dev/null <<EOF
    node-ip: 10.250.0.1
    flannel-iface: k3s0
    write-kubeconfig-mode: "0640"
    write-kubeconfig-group: k3s-admin
    secrets-encryption: true
+   resolv-conf: /etc/rancher/k3s/resolv.conf
    disable:
      - traefik
      - servicelb
@@ -302,6 +307,7 @@ sysctl fs.inotify.max_user_instances fs.inotify.max_user_watches    # 1024, 5242
    EOF
    sudo cat /etc/rancher/k3s/config.yaml
    ```
+   → `nameserver <router-ip>`, then the config.
 2. Install:
    ```bash
    cd "$(mktemp -d)"
@@ -1160,11 +1166,11 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 **Let an MCP server write, or take it back**
 1. `mcp.<grafana|mongodb|postgres>.write: true` (or `false`) in `environments/default.yaml`; commit, push, `git pull` on the server.
 2. PostgreSQL: `make apply R=postgres`, then `make apply R=postgres-mcp`. MongoDB: `make apply R=mongodb`, then `make apply R=mongodb-mcp`. Grafana: give the `mcp` service account the role Editor (or Viewer) in Grafana, then `make apply R=grafana-mcp`.
-3. `kubectl -n homelab rollout restart deploy/agent-toolbox`. The toolbox reads the servers' tools when it starts, so the write tools appear (or go).
+3. `make restart R=agent-toolbox`, then `make restart R=agent-runtime` — raw: `kubectl -n homelab rollout restart deploy/agent-toolbox` (then `deploy/agent-runtime`). The toolbox reads the servers' tools when it starts, so the write tools appear (or go).
 
 **Choose Grafana's MCP tools**
 1. `mcp.grafana.categories` in `environments/default.yaml` (comma-separated: `search`, `datasource`, `dashboard`, `prometheus`, `loki`, `alerting`, `navigation`, …).
-2. `make apply R=grafana-mcp`, then `kubectl -n homelab rollout restart deploy/agent-toolbox`.
+2. `make apply R=grafana-mcp`, then `make restart R=agent-toolbox` and `make restart R=agent-runtime`.
 
 **Rotate the MCP passwords**
 - `make secret-rotate SECRET=pg-role-mcp KEY=password` (PostgreSQL applies it itself).
@@ -1216,6 +1222,15 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 1. The line above names the Secret and key.
 2. `make secrets`, or `make secret-set SECRET=<secret> KEY=<key>` for a typed one.
 
+**Warning `DNSConfigForming` … `Nameserver limits were exceeded` (CoreDNS, every minute)**
+1. `grep nameserver /run/systemd/resolve/resolv.conf` → 4 lines or more (the router once per network).
+2. `echo "nameserver $(ip -4 route show default | awk '{print $3; exit}')" | sudo tee /etc/rancher/k3s/resolv.conf` → `nameserver <router-ip>`.
+3. `grep -q resolv-conf /etc/rancher/k3s/config.yaml || echo 'resolv-conf: /etc/rancher/k3s/resolv.conf' | sudo tee -a /etc/rancher/k3s/config.yaml`
+4. `sudo systemctl restart k3s`; after a minute `kubectl get nodes` → `Ready` (pods keep running).
+5. `kubectl -n kube-system rollout restart deploy/coredns` → `deployment.apps/coredns restarted`.
+6. After 5 minutes, `kubectl -n kube-system get events --field-selector reason=DNSConfigForming` lists no new event; `make verify` is all ✓.
+7. New router, or its address changed: redo 2, 4, 5.
+
 **`make apply` fails with `not ready` … `context deadline exceeded`**
 1. The releases after the failed one didn't run.
 2. `kubectl -n homelab get pods -l app.kubernetes.io/instance=<release> -o wide` → `Pending`, `CrashLoopBackOff` or `0/1 Running`.
@@ -1248,6 +1263,11 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 **`https://<HOMELAB_DOMAIN>/` doesn't answer**
 1. `make status` → caddy `Running`?
 2. `make logs R=caddy` → certificate errors: MagicDNS and HTTPS certificates on in the Tailscale admin console; `make validate` (Tailscale's socket).
+
+**HTTPS fails with `tlsv1 alert internal error`, and Caddy's logs say `dial unix /var/run/tailscale/tailscaled.sock: connect: connection refused`**
+1. Caddy can't reach Tailscale to get its certificate: tailscaled restarted and Caddy still holds its old socket. `systemctl show tailscaled -p ActiveEnterTimestamp` is later than Caddy's start (`kubectl -n homelab get pod -l app.kubernetes.io/instance=caddy -o custom-columns=NAME:.metadata.name,START:.status.startTime`).
+2. `make restart R=caddy` — raw: `kubectl -n homelab rollout restart deploy/caddy && kubectl -n homelab rollout status deploy/caddy`.
+3. So it doesn't come back: `make validate` → `tailscaled keeps /run/tailscale when it restarts`; otherwise add `RuntimeDirectoryPreserve=restart` to the drop-in ([Start Tailscale and SSH at boot](#8-start-tailscale-and-ssh-at-boot), step 1), then `sudo systemctl daemon-reload`.
 
 **Signing in fails (error page or endless redirect)**
 1. `make logs R=oauth2-proxy`
@@ -1317,6 +1337,7 @@ Deletes all data: databases, accounts, Secrets, volumes. The operators (`cnpg`, 
 | `make template [R=…\|G=…]` | `helmfile [-l name=<release>\|-l group=<group>] template` |
 | `make releases` | `helm list -A` |
 | `make rollback R=…` | `helm -n homelab rollback <release>` |
+| `make restart R=…` | `kubectl -n homelab rollout restart deploy/<release>` (or `statefulset/…`), then `kubectl -n homelab rollout status …` |
 | `make status` · `make ps` | `kubectl -n homelab get pods -o wide` |
 | `make logs R=… [TAIL=…]` | `kubectl -n homelab logs -f --tail=200 -l app.kubernetes.io/instance=<release> --all-containers --prefix` |
 | `make events` | `kubectl -n homelab get events --sort-by=.lastTimestamp \| tail -n 40` |

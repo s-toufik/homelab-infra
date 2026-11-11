@@ -283,7 +283,7 @@ kubectl -n homelab delete pod -l cnpg.io/cluster=postgres      # PostgreSQL: its
 |---|---|---|
 | Deploy what changed | `make apply R=<release>` — raw: `helmfile -l name=<release> apply` | Only if its files or version changed |
 | Redeploy even without a change | `make sync R=<release>` — raw: `helmfile -l name=<release> sync` | Re-applies it and re-runs its jobs; brings back what was deleted by hand; pods restart only if something changed |
-| Restart its pods | `kubectl -n homelab rollout restart deploy/<release>` (`statefulset/<release>` for a database) | New pods, same settings |
+| Restart its pods | `make restart R=<release>` — raw: `kubectl -n homelab rollout restart deploy/<release>` (`statefulset/<release>` for a database), then `kubectl -n homelab rollout status …` | New pods, same settings; waits until they're ready |
 | Reinstall it | `helm -n homelab uninstall <release>`, then `make apply R=<release>` | Everything is recreated; its volumes are kept and taken back, its data with them |
 | Go back to the previous revision | `make rollback R=<release>` — raw: `helm -n homelab rollback <release>` | Then set the old version in `environments/versions.yaml`, or the next `make apply` upgrades again |
 | See its revisions | `helm -n homelab history <release>` | |
@@ -302,7 +302,7 @@ GitHub has the new build under the old version (`1.1.2` here), but the server ke
 1. **Forget the cached chart:** `helmfile cache cleanup`. The next deploy downloads the chart again.
 2. **Remove the cached image:** `sudo k3s crictl rmi docker.io/toufik142/homelab-ui:1.1.2`. It prints `Deleted: …`; if the image is in use, do step 4, then this step and step 4 again.
 3. **Deploy the downloaded chart:** `make sync R=homelab-ui` — raw: `helmfile -l name=homelab-ui sync`. It ends with `UPDATED RELEASES: homelab-ui`.
-4. **Replace the pods, so they pull the image:** `kubectl -n homelab rollout restart deploy/homelab-ui`. `make ps` shows a new homelab-ui pod.
+4. **Replace the pods, so they pull the image:** `make restart R=homelab-ui` — raw: `kubectl -n homelab rollout restart deploy/homelab-ui`. `make ps` shows a new homelab-ui pod.
 5. **Check the pod runs the new build:**
    ```bash
    kubectl -n homelab get pod -l app.kubernetes.io/name=homelab-ui -o jsonpath='{.items[0].status.containerStatuses[0].imageID}'; echo

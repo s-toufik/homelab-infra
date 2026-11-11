@@ -76,6 +76,14 @@ rollback: ## Go back to a release's previous revision: make rollback R=<release>
 	@[ -n "$(R)" ] || { echo "Usage: make rollback R=<release>"; exit 1; }
 	@helm -n $(NS) rollback $(R)
 
+.PHONY: restart
+restart: ## Restart a release's pods and wait until they're ready (same version and settings): make restart R=<release>
+	@[ -n "$(R)" ] || { echo "Usage: make restart R=<release>"; exit 1; }
+	@workloads="$$(kubectl -n $(NS) get deploy,statefulset,daemonset -l app.kubernetes.io/instance=$(R) -o name)"; \
+	  [ -n "$$workloads" ] || { echo "No Deployment or StatefulSet for release '$(R)'"; exit 1; }; \
+	  for workload in $$workloads; do kubectl -n $(NS) rollout restart "$$workload"; done; \
+	  for workload in $$workloads; do kubectl -n $(NS) rollout status "$$workload" --timeout=10m; done
+
 ##@ Inspect
 
 .PHONY: status ps

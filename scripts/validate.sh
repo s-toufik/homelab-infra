@@ -34,6 +34,11 @@ if [[ "$address" == "$actual_address" ]]; then ok "tailscaleIP $address is this 
 else fail "tailscaleIP '$address' is not this machine's Tailscale address '$actual_address' (run: make local)"; fi
 if [[ -S /run/tailscale/tailscaled.sock ]]; then ok "Tailscale's socket is there (Caddy gets its certificate from it)"
 else fail "/run/tailscale/tailscaled.sock not found: Tailscale must run on this machine"; fi
+if [[ "$(systemctl show tailscaled -p RuntimeDirectoryPreserve --value 2>/dev/null)" =~ ^(restart|yes)$ ]]; then
+  ok "tailscaled keeps /run/tailscale when it restarts (Caddy keeps its certificate)"
+else
+  fail "tailscaled deletes /run/tailscale when it restarts: add RuntimeDirectoryPreserve=restart (DevOps guide, Start Tailscale and SSH at boot)"
+fi
 if grep -q 'ip daddr 10.250.0.1 drop' /etc/homelab/k3s-lan-guard.nft 2>/dev/null; then
   ok "the LAN guard keeps the node address 10.250.0.1 off the home network"
 else

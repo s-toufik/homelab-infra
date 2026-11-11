@@ -124,6 +124,8 @@ TELEMETRY
 
 **Signing in** — open any tool, Keycloak asks for your account once, and the session (cookie `__Host-homelab`, 8 hours) opens every other tool. Caddy removes any identity headers a browser sends and sets them itself from oauth2-proxy's answer. Inside the cluster, DNS answers the Tailscale name with Caddy, so pods that check sign-ins use the same address and certificate as browsers.
 
+**DNS for the pods** — CoreDNS answers the cluster's names itself and forwards the others to your router, read from `/etc/rancher/k3s/resolv.conf` (k3s's own file, `resolv-conf` in its config). Not the server's own list: with Ethernet and Wi-Fi both up it names the router twice, over the 3 nameservers Linux allows, and Kubernetes would warn about it every minute (`DNSConfigForming`).
+
 **Your data stays yours** — Tasker calls `/api/tasker/`; Caddy adds a secret only it knows and the signed-in account name; PostgREST refuses requests without the secret, and PostgreSQL's row-level security returns only that account's workflows and favorites.
 
 **Status at a glance** — homelab-ui's Status page asks `/api/health/<service>` for each web service and Prometheus (`cnpg_collector_up`, `mongodb_up`, `kafka_brokers`) for the rest; `make verify` checks every group from the terminal.

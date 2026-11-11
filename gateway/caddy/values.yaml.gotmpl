@@ -59,13 +59,13 @@ configFiles:
 extraVolumes:
   - name: tailscale
     hostPath:
-      path: /run/tailscale/tailscaled.sock
-      type: Socket
+      path: /run/tailscale
+      type: Directory
   - name: tmp
     emptyDir: {}
 extraVolumeMounts:
   - name: tailscale
-    mountPath: /var/run/tailscale/tailscaled.sock
+    mountPath: /var/run/tailscale
   - name: tmp
     mountPath: /tmp
 
