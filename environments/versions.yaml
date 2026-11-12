@@ -33,5 +33,5 @@ images:
 
 apps:
   homelabUi: 1.1.4
-  agentToolbox: 1.1.2
-  agentRuntime: 1.1.0
+  agentToolbox: 1.1.3
+  agentRuntime: 1.1.1
