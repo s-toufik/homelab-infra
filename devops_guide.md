@@ -854,7 +854,7 @@ Once. Charts and images must be public, so the server pulls them without a login
 3. Create the passwords and keys:
    - `make secrets`
    - raw: `./scripts/secrets.sh`
-4. Type the LLM provider's API key (NVIDIA's `nvapi-…`; any text if `llmBaseUrl` in `environments/default.yaml` is the local `http://llm:8080/v1`):
+4. Type NVIDIA's API key (`nvapi-…`), for the agent's NVIDIA models; the homelab's own models need none:
    - `make secret-set SECRET=agent-runtime KEY=llm-api-key`
    - raw: `./scripts/secrets.sh set agent-runtime llm-api-key`
 5. Create the backups folder (root only):
@@ -1144,10 +1144,12 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 **List and try the tools in the browser**
 - `https://<HOMELAB_DOMAIN>:6274` (MCP Inspector, signed in) → **Connect** → **Tools → List Tools**.
 
-**Change the LLM provider**
-1. `llmBaseUrl` in `environments/default.yaml`: NVIDIA's `https://integrate.api.nvidia.com/v1`, or the local `http://llm:8080/v1`.
-2. Its API key: `make secret-set SECRET=agent-runtime KEY=llm-api-key`
-3. `make apply R=agent-runtime`
+**The agent's model providers**
+The agent offers the homelab's models (`http://llm:8080/v1`, set in `apps/agent-runtime/values.yaml.gotmpl`) and NVIDIA's (`https://integrate.api.nvidia.com/v1`, in the app's own `devops/helm/values.yml`), side by side in the model list.
+1. NVIDIA's key: `make secret-set SECRET=agent-runtime KEY=llm-api-key` — raw: `./scripts/secrets.sh set agent-runtime llm-api-key`
+2. Leave out the homelab's models: remove `HOMELAB_LLM_BASE_URL` from `apps/agent-runtime/values.yaml.gotmpl`.
+3. `make apply R=agent-runtime` — raw: `helmfile -l name=agent-runtime apply`
+4. Check: `make logs R=agent-runtime` → no `Model provider '…' has no URL` line for a provider you want.
 
 **The local LLM**
 - Up, and its models: `make llm-status` — raw: `kubectl -n homelab exec deploy/caddy -c caddy -- wget -q -O - http://llm:8080/v1/models`

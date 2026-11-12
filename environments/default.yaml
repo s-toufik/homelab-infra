@@ -1,7 +1,5 @@
 timezone: Europe/Paris
 
-llmBaseUrl: https://integrate.api.nvidia.com/v1
-
 prometheus:
   retentionTime: 30d
   retentionSize: 50GB

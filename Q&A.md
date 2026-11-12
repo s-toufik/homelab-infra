@@ -68,7 +68,7 @@ Nothing is in git: not the passwords, not `environments/local.yaml` (only the se
 | `grafana-oidc` | `client-secret` | Grafana's sign-in with Keycloak |
 | `tasker-gateway` | `secret` | Caddy → PostgREST |
 | `llm-gateway` | `api-key` | the LLM API on `:8090` |
-| `agent-runtime` | `llm-api-key` | the agent's LLM provider (typed by you) |
+| `agent-runtime` | `llm-api-key` | NVIDIA's API key, for the agent's NVIDIA models (typed by you) |
 | `mongodb-mcp` | `username`, `password` | MongoDB's MCP server (user `mcp`) |
 | `pg-role-mcp` | `username`, `password` | PostgreSQL's MCP server (role `mcp`) |
 | `grafana-mcp` | `token` | Grafana's MCP server: a Grafana service-account token (typed by you) |
