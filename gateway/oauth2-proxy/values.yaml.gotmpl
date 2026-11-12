@@ -27,6 +27,8 @@ args:
   - --cookie-refresh=4m
   - --whitelist-domain={{ .Values.domain }}
   - --whitelist-domain={{ .Values.domain }}:*
+  - --exclude-logging-path=/oauth2/auth
+  - --silence-ping-logging=true
 
 ports:
   - { name: http, port: 4180 }

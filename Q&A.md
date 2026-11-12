@@ -21,26 +21,26 @@ Short answers to everyday questions. Run commands on the server, in the `homelab
 
 ## How do I deploy a dev image of the agent?
 
-Every push to `develop` of agent-runtime (or agent-toolbox) publishes the image `toufik142/agent-runtime:dev-<commit sha>`. The homelab normally runs the version tagged `vX.Y.Z`; you can point it at a dev image instead.
+A tag `vX.Y.Z-rc.N` on `develop` of agent-runtime (or agent-toolbox) publishes the image `toufik142/agent-runtime:X.Y.Z-rc.N` (and moves `:dev` to it); pushes publish nothing. The homelab normally runs the version tagged `vX.Y.Z` on `main`; you can point it at a pre-release instead.
 
-1. Find the commit's full sha: the green **PUBLISH** run in the repository's **Actions**, or on your Mac `git rev-parse origin/develop`.
+1. On your Mac, in the app repository: `git switch develop && git pull`, `git tag vX.Y.Z-rc.N`, `git push origin vX.Y.Z-rc.N`; **Actions**: RELEASE TARGET says `prerelease`, PUBLISH is green.
 2. Pick how long it should stay:
    - **Just to try it** (undone by the next `make apply`):
      ```bash
-     helmfile -l name=agent-runtime apply --set image.tag=dev-<sha>
+     helmfile -l name=agent-runtime apply --set image.tag=X.Y.Z-rc.N
      ```
    - **Until you remove it**: on your Mac, in `apps/agent-runtime/values.yaml.gotmpl`, add
      ```yaml
      image:
-       tag: dev-<sha>
+       tag: X.Y.Z-rc.N
      ```
      commit, push; on the server `git pull`, `make apply R=agent-runtime` — raw: `helmfile -l name=agent-runtime apply`.
-3. Check: `kubectl -n homelab get deploy agent-runtime -o jsonpath='{.spec.template.spec.containers[0].image}'; echo` → `toufik142/agent-runtime:dev-<sha>`; `make logs R=agent-runtime`.
+3. Check: `kubectl -n homelab get deploy agent-runtime -o jsonpath='{.spec.template.spec.containers[0].image}'; echo` → `toufik142/agent-runtime:X.Y.Z-rc.N`; `make logs R=agent-runtime`.
 4. Back to the release: remove the `image:` lines (or just `make apply R=agent-runtime` for the "just to try it" way).
 
-- Use `dev-<sha>`, not `dev`: the server keeps an image it already has, so `:dev` would not pick up a newer push.
-- Only the image changes. The chart, with the repository's `devops/helm/values.yml` (env variables, Secrets, probes), stays the one of the release. A dev build that needs a new env variable needs it in `apps/agent-runtime/values.yaml.gotmpl` too, under `env:`.
-- Same for agent-toolbox: `name=agent-toolbox`, `apps/agent-toolbox/values.yaml.gotmpl`, image `toufik142/agent-toolbox:dev-<sha>`.
+- Use `X.Y.Z-rc.N`, not `dev`: the server keeps an image it already has, so `:dev` would not pick up a newer pre-release.
+- Only the image changes. The chart, with the repository's `devops/helm/values.yml` (env variables, Secrets, probes), stays the one of the release. A pre-release that needs a new env variable needs it in `apps/agent-runtime/values.yaml.gotmpl` too, under `env:`.
+- Same for agent-toolbox: `name=agent-toolbox`, `apps/agent-toolbox/values.yaml.gotmpl`, image `toufik142/agent-toolbox:X.Y.Z-rc.N`.
 
 ## Where are the passwords stored?
 
@@ -216,6 +216,19 @@ Your app uses the env variable names it reads.
 - `Authentication failed`: the password was rotated or mistyped; copy it again (step 1).
 - A connection string with the password in it (`mongodb://root:<password>@…`) stays out of git and chats.
 
+## What if a service starts before the one it needs?
+
+Kubernetes has no `depends_on`. `needs:` in `helmfile.yaml.gotmpl` orders `make apply` only; after a reboot or a single restart, every pod starts on its own. So each app waits for nothing and catches up instead:
+
+| Who | Needs | When it's missing |
+|---|---|---|
+| agent-toolbox | grafana-mcp, mongodb-mcp, postgres-mcp | Starts with its own tools; retries each server after 5 s, 10, 20, 40, then every 60 s, and publishes its tools as soon as it answers |
+| agent-runtime | agent-toolbox | Starts and answers without tools; retries the same way, and the tools join without a restart |
+
+- Readiness stays about the app itself: a missing MCP server never makes the toolbox not ready.
+- Each server has its own loop. To change the pace, add `MCP_REFRESH_INTERVAL`, `MCP_RETRY_DELAY` or `MCP_MAX_RETRY_DELAY` (seconds, as strings) under `env:` in `apps/agent-toolbox/values.yaml.gotmpl` or `apps/agent-runtime/values.yaml.gotmpl`, then `make apply R=<app>` — raw: `helmfile -l name=<app> apply`. Unset means 60, 5 and 60; never set one empty.
+- See it: `kubectl -n homelab exec deploy/agent-toolbox -- python -c "import urllib.request as u; print(u.urlopen(u.Request('http://localhost:8001/actuator/health', headers={'Host': 'agent-toolbox:8001'})).read().decode())"` → each server `UP`, or `DOWN` with since when and why. The logs say it too: `External MCP 'grafana' unavailable…`, then `… is back`.
+
 ## How do I see the logs?
 
 | To see | Command |
@@ -229,6 +242,9 @@ Your app uses the env variable names it reads.
 | Everything, searchable, kept 30 days | Grafana `https://<HOMELAB_DOMAIN>:3000/explore` → **Loki** → `{service_name="<release>"}` |
 
 - In Grafana, the label browser lists every `service_name`. agent-runtime and agent-toolbox send their logs over OTLP, under their own service names; a log line with a `trace_id` links to its trace in Tempo.
+- Levels are lowercase everywhere (`info`, `warn`, `error`): Loki reads OTLP logs' level from their severity number, not from their text (`INFO`), because `log_level_fields` in [`observability/loki/config.yml`](observability/loki/config.yml) leaves out `severity_text`.
+- oauth2-proxy doesn't log Caddy's session checks (`/oauth2/auth`, one per request) nor its health checks; sign-ins, sign-outs and failed sign-ins are still logged. Every request, with its status, is in Caddy's log.
+- Kafka UI writes plain lines, without colour codes ([`message-broker/kafka-ui/logback.xml`](message-broker/kafka-ui/logback.xml)).
 
 ## How do I stop everything?
 

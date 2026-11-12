@@ -907,7 +907,7 @@ Once. Charts and images must be public, so the server pulls them without a login
    git tag v<X.Y.Z>
    git push origin v<X.Y.Z>
    ```
-3. **Actions**: PUBLISH (image `toufik142/<app>:<X.Y.Z>`) and CHART (`oci://ghcr.io/s-toufik/charts/<app>:<X.Y.Z>`) are green.
+3. **Actions**: RELEASE TARGET says `release`; PUBLISH (images `toufik142/<app>:<X.Y.Z>` and `:latest`) and CHART (`oci://ghcr.io/s-toufik/charts/<app>:<X.Y.Z>`) are green.
 
 **In homelab-infra**
 4. Set the version in `environments/versions.yaml` (`apps.homelabUi`, `apps.agentToolbox` or `apps.agentRuntime`), commit, push.
@@ -917,6 +917,12 @@ Once. Charts and images must be public, so the server pulls them without a login
 6. `make diff R=<release>` — raw: `helmfile -l name=<release> diff`
 7. `make apply R=<release>` — raw: `helmfile -l name=<release> apply`
 8. `make status` → the pod is `Running`; open the app.
+
+**A pre-release image** (tried by hand, never deployed)
+1. `git switch develop && git pull`
+2. `git tag v<X.Y.Z>-rc.<N>`
+3. `git push origin v<X.Y.Z>-rc.<N>`
+4. **Actions**: RELEASE TARGET says `prerelease`; PUBLISH (images `toufik142/<app>:<X.Y.Z>-rc.<N>` and `:dev`) is green; no CHART.
 
 **A release train** (several apps at once)
 1. Steps 1–3 in each app repository.
@@ -1166,11 +1172,11 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 **Let an MCP server write, or take it back**
 1. `mcp.<grafana|mongodb|postgres>.write: true` (or `false`) in `environments/default.yaml`; commit, push, `git pull` on the server.
 2. PostgreSQL: `make apply R=postgres`, then `make apply R=postgres-mcp`. MongoDB: `make apply R=mongodb`, then `make apply R=mongodb-mcp`. Grafana: give the `mcp` service account the role Editor (or Viewer) in Grafana, then `make apply R=grafana-mcp`.
-3. `make restart R=agent-toolbox`, then `make restart R=agent-runtime` — raw: `kubectl -n homelab rollout restart deploy/agent-toolbox` (then `deploy/agent-runtime`). The toolbox reads the servers' tools when it starts, so the write tools appear (or go).
+3. Nothing to restart: within a minute the toolbox re-reads the server's tools, and the agent the toolbox's, so the write tools appear (or go). To see it at once: `make restart R=agent-toolbox` — raw: `kubectl -n homelab rollout restart deploy/agent-toolbox`.
 
 **Choose Grafana's MCP tools**
 1. `mcp.grafana.categories` in `environments/default.yaml` (comma-separated: `search`, `datasource`, `dashboard`, `prometheus`, `loki`, `alerting`, `navigation`, …).
-2. `make apply R=grafana-mcp`, then `make restart R=agent-toolbox` and `make restart R=agent-runtime`.
+2. `make apply R=grafana-mcp` — raw: `helmfile -l name=grafana-mcp apply`. Within a minute the toolbox and the agent follow.
 
 **Rotate the MCP passwords**
 - `make secret-rotate SECRET=pg-role-mcp KEY=password` (PostgreSQL applies it itself).

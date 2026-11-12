@@ -7,6 +7,7 @@ env:
   KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
   DYNAMIC_CONFIG_ENABLED: "false"
   LOGGING_LEVEL_ROOT: warn
+  LOGGING_CONFIG: /etc/kafka-ui-logging/logback.xml
   JAVA_OPTS: -Xms256m -Xmx512m
 
 ports:
@@ -24,6 +25,13 @@ probes:
     httpGet: { path: /actuator/health, port: http }
     periodSeconds: 30
     failureThreshold: 5
+
+configFiles:
+  logging:
+    mountPath: /etc/kafka-ui-logging
+    files:
+      logback.xml: |
+        {{- readFile "logback.xml" | nindent 8 }}
 
 resources:
   requests: { cpu: 50m, memory: 384Mi }
