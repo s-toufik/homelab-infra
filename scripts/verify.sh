@@ -29,7 +29,8 @@ mcp_tools() {
 }
 series() { inside "http://prometheus:9090/api/v1/query?query=$(jq -rn --arg q "$1" '$q | @uri')" | jq -r '.data.result | length' 2>/dev/null || echo 0; }
 positive() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 > 0 )); }
-psql_homelab() { k exec -i "$(postgres_primary)" -c postgres -- psql -d homelab -X -q -tA -v ON_ERROR_STOP=1 "$@"; }
+psql_in() { local database="$1"; shift; k exec -i "$(postgres_primary)" -c postgres -- psql -d "$database" -X -q -tA -v ON_ERROR_STOP=1 "$@"; }
+psql_homelab() { psql_in homelab "$@"; }
 can_reach() {
   k exec "deploy/$1" -c "$1" -- python -c \
     "import socket, sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), 3)" "$2" "$3" >/dev/null 2>&1
@@ -54,11 +55,13 @@ expect "PostgreSQL is Ready" \
 expect "its roles match their declaration" \
   equals "$(k get clusters.postgresql.cnpg.io postgres -o jsonpath='{.status.managedRolesStatus.cannotReconcile}' 2>/dev/null)" ""
 roles="$(psql_homelab -c "SELECT string_agg(rolname || ':' || rolcanlogin::int || rolsuper::int || rolbypassrls::int, ' ' ORDER BY rolname)
-  FROM pg_roles WHERE rolname IN ('keycloak', 'postgrest', 'tasker_web')" 2>/dev/null || true)"
-expect "keycloak and postgrest log in without superuser rights, tasker_web cannot log in" \
-  equals "$roles" "keycloak:100 postgrest:100 tasker_web:000"
-expect "the keycloak database exists" \
-  equals "$(k get databases.postgresql.cnpg.io postgres-keycloak -o jsonpath='{.status.applied}' 2>/dev/null)" "true"
+  FROM pg_roles WHERE rolname IN ('agent_runtime', 'keycloak', 'postgrest', 'tasker_web')" 2>/dev/null || true)"
+expect "agent_runtime, keycloak and postgrest log in without superuser rights, tasker_web cannot log in" \
+  equals "$roles" "agent_runtime:100 keycloak:100 postgrest:100 tasker_web:000"
+for database in keycloak agent-runtime; do
+  expect "the ${database} database exists" \
+    equals "$(k get databases.postgresql.cnpg.io "postgres-${database}" -o jsonpath='{.status.applied}' 2>/dev/null)" "true"
+done
 files="$(ls repository/db-migrate/migrations/*.sql | wc -l | tr -d ' ')"
 applied="$(psql_homelab -c 'SELECT count(*) FROM public.schema_migrations' 2>/dev/null || true)"
 expect "every migration is applied ($applied of $files)" equals "$applied" "$files"
@@ -192,6 +195,14 @@ llm_host="${llm_hostport%%:*}"; llm_port="${llm_hostport##*:}"
 [[ "$llm_port" == "$llm_hostport" ]] && { [[ "$llm_scheme" == "https" ]] && llm_port=443 || llm_port=80; }
 expect "agent-runtime reaches its LLM provider (${llm_host}:${llm_port})" can_reach agent-runtime "$llm_host" "$llm_port"
 expect "agent-runtime reaches agent-toolbox" can_reach agent-runtime agent-toolbox 8001
+expect "agent-runtime reaches PostgreSQL" can_reach agent-runtime postgres-rw 5432
+a2a_host="$(k get deploy agent-runtime -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="DB_POSTGRES_A2A_HOST")].value}')"
+if [[ -n "$a2a_host" ]]; then
+  expect "agent-runtime keeps its A2A tasks in PostgreSQL" \
+    equals "$(psql_in agent_runtime -c "SELECT to_regclass('public.tasks') IS NOT NULL" 2>/dev/null || true)" "t"
+else
+  note "agent-runtime has no DB_POSTGRES_A2A_HOST yet: its A2A tasks are in SQLite"
+fi
 expect "agent-toolbox answers on http://${domain}:8001 (its host name is allowed)" \
   equals "$(http_status "http://${domain}:8001/actuator/health")" "200"
 expect "agent-toolbox reaches the internet" can_reach agent-toolbox integrate.api.nvidia.com 443

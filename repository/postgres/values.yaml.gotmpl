@@ -30,7 +30,12 @@ roles:
     login: true
     inRoles: [pg_read_all_data{{ if .Values.mcp.postgres.write }}, pg_write_all_data{{ end }}]
     passwordSecret: { name: pg-role-mcp }
+  - name: agent_runtime
+    login: true
+    passwordSecret: { name: pg-role-agent-runtime }
 
 databases:
   - name: keycloak
     owner: keycloak
+  - name: agent_runtime
+    owner: agent_runtime

@@ -71,6 +71,7 @@ Nothing is in git: not the passwords, not `environments/local.yaml` (only the se
 | `agent-runtime` | `llm-api-key` | NVIDIA's API key, for the agent's NVIDIA models (typed by you) |
 | `mongodb-mcp` | `username`, `password` | MongoDB's MCP server (user `mcp`) |
 | `pg-role-mcp` | `username`, `password` | PostgreSQL's MCP server (role `mcp`) |
+| `pg-role-agent-runtime` | `username`, `password` | agent-runtime's A2A tasks (role `agent_runtime`) |
 | `grafana-mcp` | `token` | Grafana's MCP server: a Grafana service-account token (typed by you) |
 
 **Read one value:**
@@ -102,7 +103,7 @@ It prints one line per value, `<secret>/<key>: <value>`: every Secret `make secr
 | User | Set in | Created | Password in |
 |---|---|---|---|
 | MongoDB `root`, Keycloak `admin`, Grafana `admin` | `SPECS` in [`scripts/secrets.sh`](scripts/secrets.sh) (`username=<name>`) | by the service, at its first start on an empty volume | Secrets `mongodb`, `keycloak-admin`, `grafana-admin` |
-| PostgreSQL roles `postgrest`, `keycloak`, `mcp` | `SPECS` in `scripts/secrets.sh` and `roles:` in [`repository/postgres/values.yaml.gotmpl`](repository/postgres/values.yaml.gotmpl) (the two names must match) | by the PostgreSQL operator, kept as declared | Secrets `pg-role-postgrest`, `pg-role-keycloak`, `pg-role-mcp` |
+| PostgreSQL roles `postgrest`, `keycloak`, `mcp`, `agent_runtime` | `SPECS` in `scripts/secrets.sh` and `roles:` in [`repository/postgres/values.yaml.gotmpl`](repository/postgres/values.yaml.gotmpl) (the two names must match) | by the PostgreSQL operator, kept as declared | Secrets `pg-role-postgrest`, `pg-role-keycloak`, `pg-role-mcp`, `pg-role-agent-runtime` |
 | MongoDB user `mcp` (MongoDB's MCP server) | `SPECS` in `scripts/secrets.sh` (`mongodb-mcp`) | by the `mongodb` release's job, at every deploy (its role follows `mcp.mongodb.write`) | Secret `mongodb-mcp` |
 | PostgreSQL `postgres` (superuser) | PostgreSQL itself | at the cluster's first start | Secret `postgres-superuser`, written by the operator |
 | PostgreSQL `homelab` (owner of the `homelab` database) | `owner: homelab` in the pg-cluster chart (`kube-charts/charts/pg-cluster/values.yaml`); `repository/postgres/values.yaml.gotmpl` doesn't override it | at the cluster's first start only | Secret `postgres-app`, written by the operator |
@@ -123,7 +124,7 @@ Use `postgres`: it sees every table. PostgreSQL isn't open to the tailnet, so pg
    It prints `10.43.x.x`. It stays the same unless the `postgres` release is removed.
 3. **In pgAdmin 4: Object Explorer → right-click Servers → Register → Server.** General tab: a name, e.g. `homelab`. Then the **SSH Tunnel** tab: Use SSH tunneling on, Tunnel host `<HOMELAB_DOMAIN>`, port `22`, Username your user on the server, Authentication Identity file (your SSH key).
 4. **Connection tab.** Host name the `10.43.x.x` address, Port `5432`, Maintenance database `homelab`, Username `postgres`, Password from step 1, Save password on.
-5. **Save.** pgAdmin lists the databases `homelab` and `keycloak`; the Tasker tables are in homelab → Schemas → tasker → Tables.
+5. **Save.** pgAdmin lists the databases `homelab`, `keycloak` and `agent_runtime`; the Tasker tables are in homelab → Schemas → tasker → Tables.
 
 - `postgres` can change and drop anything: use it to look and for admin work, never in an app.
 - pgAdmin says `connection timed out`: Tailscale isn't on on your Mac, or the address changed (step 2 again).
@@ -171,6 +172,7 @@ Its own: one user per app, which can only touch its own schema and what you gran
 | Each app or API | its own (`myapi`) | `pg-role-myapi` | its schema and what you grant it |
 | PostgREST (Tasker) | `postgrest` | `pg-role-postgrest` | the Tasker tables, only the signed-in user's rows |
 | Keycloak | `keycloak` | `pg-role-keycloak` | the database `keycloak` |
+| agent-runtime | `agent_runtime` | `pg-role-agent-runtime` | the database `agent_runtime` (its A2A tasks) |
 | `homelab` | `homelab` | `postgres-app` | owns the database `homelab`; unused |
 
 ## How do I connect to MongoDB?

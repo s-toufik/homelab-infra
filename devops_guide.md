@@ -1042,7 +1042,7 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 1. `make secret-rotate SECRET=<secret> KEY=<key>` — raw: `./scripts/secrets.sh rotate <secret> <key>`
 2. The pods using it restart; PostgreSQL applies a new role password by itself.
 3. For `oauth2-proxy/client-secret` or `grafana-oidc/client-secret`: `make sync R=keycloak`.
-- Rotatable: `pg-role-postgrest/password`, `pg-role-keycloak/password`, `oauth2-proxy/client-secret`, `oauth2-proxy/cookie-secret` (signs everyone out), `grafana-oidc/client-secret`, `tasker-gateway/secret`, `llm-gateway/api-key`.
+- Rotatable: `pg-role-postgrest/password`, `pg-role-keycloak/password`, `pg-role-agent-runtime/password`, `oauth2-proxy/client-secret`, `oauth2-proxy/cookie-secret` (signs everyone out), `grafana-oidc/client-secret`, `tasker-gateway/secret`, `llm-gateway/api-key`.
 - Not rotatable (read once, when their data is created): `keycloak-admin`, `grafana-admin`, `mongodb`.
 
 **Read one** (e.g. the LLM API key, for a script)
@@ -1078,7 +1078,7 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 
 ## Backups and restores
 
-Every night at 03:00 (`backups` in `environments/default.yaml`): PostgreSQL (databases `homelab` and `keycloak`) and MongoDB into `/var/backups/homelab`, kept 14 days.
+Every night at 03:00 (`backups` in `environments/default.yaml`): PostgreSQL (databases `homelab` and `keycloak`; not `agent_runtime`, whose A2A tasks live a week) and MongoDB into `/var/backups/homelab`, kept 14 days.
 
 **List them**
 - `make backups` — raw: `./scripts/backups.sh list`
@@ -1161,6 +1161,15 @@ The agent offers the homelab's models (`http://llm:8080/v1`, set in `apps/agent-
 - Change a model: `llm/llm/config.yml`, then `make apply R=llm`.
 - The API key for scripts: `kubectl -n homelab get secret llm-gateway -o jsonpath='{.data.api-key}' | base64 -d; echo`
 
+**Give agent-runtime its PostgreSQL database** (A2A tasks, first time)
+1. kube-charts' `pg-cluster` 0.1.1 is published (**Actions → Charts**: PUBLISH is green), see [Change a chart](#change-a-chart).
+2. On the server: `git pull`.
+3. `make secrets` — raw: `./scripts/secrets.sh`. Creates `pg-role-agent-runtime`.
+4. `make apply R=postgres` — raw: `helmfile -l name=postgres apply`. Creates the role and the database `agent_runtime`.
+5. `make apply R=agent-runtime` — raw: `helmfile -l name=agent-runtime apply` (a version that stores A2A tasks in PostgreSQL, `apps.agentRuntime` in `environments/versions.yaml`).
+6. `make logs R=agent-runtime` → `Storing A2A tasks in PostgreSQL`.
+7. `make verify` — raw: `./scripts/verify.sh`. `agent-runtime reaches PostgreSQL` and `agent-runtime keeps its A2A tasks in PostgreSQL` are ✓.
+
 **Give the toolbox Grafana, MongoDB and PostgreSQL** (their MCP servers, first time)
 1. In Grafana (`https://<HOMELAB_DOMAIN>:3000`, as admin): **Administration → Users and access → Service accounts → Add service account**, name `mcp`, role **Viewer** (**Editor** to let it write) → **Add service account token** → copy it.
 2. `make secret-set SECRET=grafana-mcp KEY=token` — raw: `./scripts/secrets.sh set grafana-mcp token`. Paste the token twice.
@@ -1182,6 +1191,7 @@ The agent offers the homelab's models (`http://llm:8080/v1`, set in `apps/agent-
 
 **Rotate the MCP passwords**
 - `make secret-rotate SECRET=pg-role-mcp KEY=password` (PostgreSQL applies it itself).
+- `make secret-rotate SECRET=pg-role-agent-runtime KEY=password` (PostgreSQL applies it, and agent-runtime restarts with it).
 - `make secret-rotate SECRET=mongodb-mcp KEY=password`, then `make sync R=mongodb` (raw: `helmfile -l name=mongodb sync`): its job sets the new password.
 
 **Update the MCP Inspector**

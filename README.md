@@ -94,8 +94,9 @@ DATA
   homelab-ui (Tasker) ─► /api/tasker ─► postgrest ─► PostgreSQL     workflows and favorites, per account
   homelab-ui (Agent)  ─► /api/agent  ─► agent-runtime ─┬─ MCP ─► agent-toolbox ─► its working-directory volume
                                                        ├─ OpenAI API ─► NVIDIA's API, or llm
-                                                       └─ conversations ─► MongoDB
-  db-migrate job (dbmate) ─► PostgreSQL schema       CloudNativePG ─► roles, passwords, the keycloak database
+                                                       ├─ conversations ─► MongoDB
+                                                       └─ A2A tasks ─► PostgreSQL
+  db-migrate job (dbmate) ─► PostgreSQL schema       CloudNativePG ─► roles, passwords, databases
   backups (every night)   ─► /var/backups/homelab on the server: PostgreSQL and MongoDB dumps
 
 AGENT — tailnet devices, homelab-ui and the MCP Inspector

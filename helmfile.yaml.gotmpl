@@ -52,7 +52,7 @@ releases:
     needs: [cnpg-system/cnpg]
     disableValidationOnInstall: true
     hooks:
-      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-postgrest, pg-role-keycloak, pg-role-mcp] }
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-postgrest, pg-role-keycloak, pg-role-mcp, pg-role-agent-runtime] }
       - { events: [postsync], showlogs: true, command: kubectl, args: [-n, homelab, wait, --for=condition=Ready, clusters.postgresql.cnpg.io/postgres, --timeout=10m] }
 
   - name: db-migrate
@@ -212,6 +212,6 @@ releases:
     chart: homelab/agent-runtime
     version: {{ .Values.apps.agentRuntime }}
     labels: { group: apps }
-    needs: [homelab/mongodb, homelab/agent-toolbox]
+    needs: [homelab/mongodb, homelab/postgres, homelab/agent-toolbox]
     hooks:
-      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, agent-runtime, mongodb] }
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, agent-runtime, mongodb, pg-role-agent-runtime] }
