@@ -1135,8 +1135,8 @@ ssh -t <user>@<HOMELAB_DOMAIN> 'sudo tar -C /var/backups -czf - homelab' > homel
 - homelab-ui → **Agent**.
 
 **Call the agent API** (from a tailnet device)
-- In a browser, signed in: `https://<HOMELAB_DOMAIN>:8100/docs` (the orchestrator)
-- From Postman or a script: `http://<HOMELAB_DOMAIN>:8000` (the orchestrator, plain HTTP, no sign-in)
+- In a browser, signed in: `https://<HOMELAB_DOMAIN>:8100/docs` (the supervisor)
+- From Postman or a script: `http://<HOMELAB_DOMAIN>:8000` (the supervisor, plain HTTP, no sign-in)
 - One agent, signed in: `https://<HOMELAB_DOMAIN>/api/agents/<name>/v1/api2a` (the stream), `/api/agents/<name>/v1/models`
 - Which agents answer: `https://<HOMELAB_DOMAIN>/api/agent/v1/agents`
 
@@ -1152,19 +1152,28 @@ Each agent offers the homelab's models (`http://llm:8080/v1`, set in `apps/agent
 1. NVIDIA's key: `make secret-set SECRET=agent-runtime KEY=llm-api-key` — raw: `./scripts/secrets.sh set agent-runtime llm-api-key`
 2. Leave out the homelab's models: remove `HOMELAB_LLM_BASE_URL` from the agents' `apps/agent-<name>/values.yaml.gotmpl`.
 3. `make apply G=apps` — raw: `helmfile -l group=apps apply`
-4. Check: `make logs R=agent-orchestration` → no `Model provider '…' has no URL` line for a provider you want.
+4. Check: `make logs R=agent-supervisor` → no `Model provider '…' has no URL` line for a provider you want.
 
 **Move from agent-runtime to the agents** (first time)
 1. agent-toolbox with scopes and agent-runtime with agents are published, and `apps.agentToolbox` and `apps.agentRuntime` in `environments/versions.yaml` name them.
 2. On the server: `git pull`.
 3. `make apply R=agent-toolbox` — raw: `helmfile -l name=agent-toolbox apply`. Serves `/mcp/<scope>` next to `/mcp`.
-4. `make apply G=apps` — raw: `helmfile -l group=apps apply`. Removes the release `agent-runtime` and starts `agent-orchestration`, `agent-chat`, … one pod each.
-5. `make verify` — raw: `./scripts/verify.sh`. Every `agent-<name> is ready and its card names it <name>` and `the orchestrator knows every agent` are ✓.
+4. `make apply G=apps` — raw: `helmfile -l group=apps apply`. Removes the release `agent-runtime` and starts `agent-supervisor`, `agent-observation`, … one pod each.
+5. `make verify` — raw: `./scripts/verify.sh`. Every `agent-<name> is ready and its card names it <name>` and `the supervisor knows every agent` are ✓.
 6. Once you no longer need its SQLite file: `kubectl -n homelab delete pvc agent-runtime-sqlite`. Its MongoDB conversations stay in the database `agent_runtime`, which the agents don't use.
 
+**Move from the orchestrator and chat to the supervisor**
+1. agent-runtime with `agents/supervisor/` is published, and `apps.agentRuntime` in `environments/versions.yaml` names it.
+2. On the server: `git pull`.
+3. `helm -n homelab uninstall agent-orchestration agent-chat` → `release "agent-orchestration" uninstalled`, `release "agent-chat" uninstalled`. Helmfile doesn't remove a release that left the file, and `agent-orchestration` holds port 8000, which the supervisor takes.
+4. `make apply G=apps` — raw: `helmfile -l group=apps apply`. Starts `agent-supervisor` on `:8000` and gives the other agents the new image.
+5. `make apply R=caddy` — raw: `helmfile -l name=caddy apply`. `/api/agent` and `:8100` go to the supervisor.
+6. `make verify` — raw: `./scripts/verify.sh`. `the supervisor answers on http://<HOMELAB_DOMAIN>:8000` and `the supervisor knows every agent (7 of 7)` are ✓.
+7. Once you no longer need their conversations: in `make mongosh`, `db.getSiblingDB("agent_orchestration").dropDatabase()` and `db.getSiblingDB("agent_chat").dropDatabase()`.
+
 **Add an agent**
-1. In agent-runtime: a folder `agents/<name>/` (`agent.yml`, and `prompts/<step>.md` where the generic prompt doesn't fit), a connector `agent_<name>` in `config/debug/connector/a2a.yml` listed in `config/root.yml`, and `<name>` in `peers` of `agents/orchestration/agent.yml`; release it.
-2. Here: `<name>` in `agents:` of `environments/default.yaml`; `apps/agent-<name>/values.yaml.gotmpl` (copy `apps/agent-chat/`, change the names); `AGENT_<NAME>_URL: http://agent-<name>:8000` in `apps/agent-orchestration/values.yaml.gotmpl`; `<name>` in the `/api/agents/` pattern of `gateway/caddy/Caddyfile`.
+1. In agent-runtime: a folder `agents/<name>/` (`agent.yml`, and `prompts/<step>.md` where the generic prompt doesn't fit), and `<name>` in `peers` of `agents/supervisor/agent.yml`; release it.
+2. Here: `<name>` in `agents:` of `environments/default.yaml`; `apps/agent-<name>/values.yaml.gotmpl` (copy `apps/agent-observation/`, change the names); `AGENT_<NAME>_URL: http://agent-<name>:8000` in `apps/agent-supervisor/values.yaml.gotmpl`; `<name>` in the `/api/agents/` pattern of `gateway/caddy/Caddyfile`.
 3. `make apply G=apps` — raw: `helmfile -l group=apps apply`, then `make apply R=caddy` — raw: `helmfile -l name=caddy apply`.
 4. `make verify` — raw: `./scripts/verify.sh`.
 
@@ -1190,7 +1199,7 @@ Each agent offers the homelab's models (`http://llm:8080/v1`, set in `apps/agent
 3. `make secrets` — raw: `./scripts/secrets.sh`. Creates `pg-role-agent-runtime`.
 4. `make apply R=postgres` — raw: `helmfile -l name=postgres apply`. Creates the role and the database `agent_runtime`.
 5. `make apply G=apps` — raw: `helmfile -l group=apps apply` (a version that stores A2A tasks in PostgreSQL, `apps.agentRuntime` in `environments/versions.yaml`).
-6. `make logs R=agent-orchestration` → `Storing A2A tasks in PostgreSQL`.
+6. `make logs R=agent-supervisor` → `Storing A2A tasks in PostgreSQL`.
 7. `make verify` — raw: `./scripts/verify.sh`. Every `agent-<name> keeps its A2A tasks in PostgreSQL (table tasks_<name>)` is ✓.
 
 **Give the toolbox Grafana, MongoDB and PostgreSQL** (their MCP servers, first time)

@@ -10,7 +10,7 @@ A complete platform for one home server, on Kubernetes: HTTPS and one sign-in in
   Browser ── HTTPS ──────┼─► GATEWAY ──► homelab-ui · Grafana · Prometheus · Kafka UI · …   │
   (Tailscale)            │   one sign-in   ──► MCP Inspector ────────────┐                  │
                          │                                               ▼                  │
-  Tailnet devices ───────┼─► APPS     agent-orchestration :8000 ─► agent-toolbox :8001      │
+  Tailnet devices ───────┼─► APPS     agent-supervisor :8000 ────► agent-toolbox :8001      │
                          │           (LLM: NVIDIA's API or local)     (MCP tools)           │
                          │                                                                  │
   Your apps ─────────────┼─► REPOSITORY        PostgreSQL · MongoDB · PostgREST · backups   │
@@ -48,7 +48,7 @@ Each group is a folder and a label of the release train ([`helmfile.yaml.gotmpl`
 | | [MCP Inspector](llm/mcp-inspector/README.md) | Lists and tries the toolbox's tools in the browser, behind the sign-in |
 | | grafana-mcp · mongodb-mcp · postgres-mcp | Grafana's, MongoDB's and PostgreSQL's MCP servers: agent-toolbox republishes their tools (`grafana_*`, `mongodb_*`, `postgres_*`), read-only unless `mcp.<server>.write` in `environments/default.yaml` says otherwise |
 | **[apps/](apps)** — yours, each from its own repository | homelab-ui | The front door: a control center, a **Status** page, every tool rebuilt as its own page (dashboards, metrics, logs, traces, Kafka, models, tools, account, Kubernetes), the agent beside every page, and Tasker |
-| | the agents · agent-toolbox | One agent-runtime pod per agent, `agent-<name>` (orchestration, chat, observation, analysis, coding, security, kitchen, travel), and their tools by scope (files, Python sandbox, Grafana, the databases' MCP servers); the orchestrator splits a request between the others. Reachable from the tailnet only; the toolbox is fenced off from the databases |
+| | the agents · agent-toolbox | One agent-runtime pod per agent, `agent-<name>` (supervisor, observation, analysis, coding, security, kitchen, travel), and their tools by scope (files, Python sandbox, Grafana, the databases' MCP servers); the supervisor answers what needs no data and hands the rest to the others. Reachable from the tailnet only; the toolbox is fenced off from the databases |
 
 ## How it ships
 
@@ -75,7 +75,7 @@ SIGN-IN — every browser request
                        │
                        ├─ :443   /                 ─► homelab-ui
                        │         /api/tasker/      ─► postgrest ─ row-level security ─► PostgreSQL (schema tasker)
-                       │         /api/agent/       ─► agent-orchestration
+                       │         /api/agent/       ─► agent-supervisor
                        │         /api/agents/<n>/  ─► agent-<n>
                        │         /api/prometheus/  ─► prometheus  (queries only)
                        │         /api/loki/ tempo/ alloy/ kafka/ llm/ toolbox/ account/
@@ -86,7 +86,7 @@ SIGN-IN — every browser request
                        ├─ :3000  ─► grafana   (signs in with Keycloak itself, roles mapped)
                        ├─ :6274  ─► mcp-inspector ─► agent-toolbox
                        ├─ :4466  ─► headlamp ─► kube-api  (admin only)
-                       ├─ :8100  ─► agent-orchestration  (its API and /docs over HTTPS)
+                       ├─ :8100  ─► agent-supervisor  (its API and /docs over HTTPS)
                        └─ :9090 :8080 :12345 :8090 :3100 :3200 :9308
                                  ─► prometheus · kafka-ui · alloy · llm · loki · tempo · kafka-exporter
 
@@ -102,7 +102,7 @@ DATA
 
 AGENT — tailnet devices, homelab-ui and the MCP Inspector
 
-  tailnet device ─► <tailscale-ip>:8000 ─► agent-orchestration ─ A2A ─► agent-<n>
+  tailnet device ─► <tailscale-ip>:8000 ─► agent-supervisor ─ A2A ─► agent-<n>
   tailnet device ─► <tailscale-ip>:8001 ─► agent-toolbox /mcp
   ┌─ NetworkPolicy ──────────────────────────────────────────────────────────────┐
   │  agent-toolbox  ◄── the agents · MCP Inspector · Caddy · tailnet devices     │
@@ -160,7 +160,7 @@ Every web tool is on `https://<HOMELAB_DOMAIN>:<port>` behind one sign-in (`HOME
 | Kafka | `kafka:9092` | `<HOMELAB_DOMAIN>:9094` |
 | LLM (OpenAI-compatible) | `http://llm:8080/v1` | `https://<HOMELAB_DOMAIN>:8090/v1` + API key |
 | OTLP gRPC / HTTP | `otel-collector:4317` / `http://otel-collector:4318` | `<HOMELAB_DOMAIN>:4317` / `:4318` |
-| Agent API | `http://agent-<name>:8000` (the orchestrator: `agent-orchestration`) | `http://<HOMELAB_DOMAIN>:8000` (the orchestrator) |
+| Agent API | `http://agent-<name>:8000` (the supervisor: `agent-supervisor`) | `http://<HOMELAB_DOMAIN>:8000` (the supervisor) |
 | Agent tools (MCP, streamable HTTP) | `http://agent-toolbox:8001/mcp` | `http://<HOMELAB_DOMAIN>:8001/mcp` |
 
 Add `OTEL_SERVICE_NAME` and `OTEL_EXPORTER_OTLP_ENDPOINT` to your service and its traces, metrics and logs appear in Grafana; pod logs are collected even without them.
@@ -178,7 +178,7 @@ Add `OTEL_SERVICE_NAME` and `OTEL_EXPORTER_OTLP_ENDPOINT` to your service and it
 - **Backups** every night, outside the cluster, root-only.
 - `make verify` checks all of the above on the running homelab.
 
-Outside the sign-in, because their clients are programs, not browsers, and reachable from the tailnet's devices only: MongoDB (its own password), Kafka and OTLP (no authentication), the orchestrator (8000) and agent-toolbox (8001). Never forward these ports on your router.
+Outside the sign-in, because their clients are programs, not browsers, and reachable from the tailnet's devices only: MongoDB (its own password), Kafka and OTLP (no authentication), the supervisor (8000) and agent-toolbox (8001). Never forward these ports on your router.
 
 ## Repository layout
 

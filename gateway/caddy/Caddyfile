@@ -111,14 +111,14 @@
 			handle_path /api/agent/* {
 				@blocked not path /v1/* /actuator/health/*
 				respond @blocked 404
-				reverse_proxy agent-orchestration:8000 {
+				reverse_proxy agent-supervisor:8000 {
 					flush_interval -1
 					header_up -Cookie
 				}
 			}
 
 			handle /api/agents/* {
-				@agent path_regexp agent ^/api/agents/(orchestration|chat|observation|analysis|coding|security|kitchen|travel)(/v1/.*|/actuator/health/.*)$
+				@agent path_regexp agent ^/api/agents/(supervisor|observation|analysis|coding|security|kitchen|travel)(/v1/.*|/actuator/health/.*)$
 				handle @agent {
 					rewrite * {re.agent.2}
 					reverse_proxy agent-{re.agent.1}:8000 {
@@ -253,7 +253,7 @@
 			import health_route grafana grafana:3000 /api/health
 			import health_route llm llm:8080 /health
 			import health_route llm-sd llm-sd:8000 /targets
-			import health_route agent-runtime agent-orchestration:8000 /actuator/health/readiness
+			import health_route agent-runtime agent-supervisor:8000 /actuator/health/readiness
 			handle /api/health/agent-toolbox {
 				rewrite * /actuator/health
 				reverse_proxy agent-toolbox:8001 {
@@ -355,7 +355,7 @@
 	route {
 		import strip_identity
 		import signed_in_page
-		reverse_proxy agent-orchestration:8000 {
+		reverse_proxy agent-supervisor:8000 {
 			flush_interval -1
 			header_up -Cookie
 		}

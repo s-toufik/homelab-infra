@@ -35,7 +35,7 @@ A tag `vX.Y.Z-rc.N` on `develop` of agent-runtime (or agent-toolbox) publishes t
        tag: X.Y.Z-rc.N
      ```
      commit, push; on the server `git pull`, `make apply G=apps` — raw: `helmfile -l group=apps apply`.
-3. Check: `kubectl -n homelab get deploy agent-chat -o jsonpath='{.spec.template.spec.containers[0].image}'; echo` → `toufik142/agent-runtime:X.Y.Z-rc.N`; `make logs R=agent-chat`.
+3. Check: `kubectl -n homelab get deploy agent-observation -o jsonpath='{.spec.template.spec.containers[0].image}'; echo` → `toufik142/agent-runtime:X.Y.Z-rc.N`; `make logs R=agent-observation`.
 4. Back to the release: remove the `image:` lines (or just `make apply G=apps` for the "just to try it" way).
 
 - Use `X.Y.Z-rc.N`, not `dev`: the server keeps an image it already has, so `:dev` would not pick up a newer pre-release.
@@ -46,10 +46,10 @@ A tag `vX.Y.Z-rc.N` on `develop` of agent-runtime (or agent-toolbox) publishes t
 
 Every agent is the same agent-runtime image started with `AGENT=<name>`: it reads `agents/<name>/` (its name, skills, tool scope, turns, prompts) and becomes that agent. One pod each keeps them apart:
 
-- **Separate state:** each agent has its own conversations (MongoDB database `agent_<name>`) and A2A tasks (PostgreSQL table `tasks_<name>`), so one agent never reads another's.
+- **Separate state:** each agent has its own conversations (MongoDB database `agent_<name>`) and A2A tasks (PostgreSQL table `tasks_<name>`), both named by agent-runtime from `AGENT`, so one agent never reads another's and its values file only says `AGENT`.
 - **Separate tools:** each one connects to its own toolbox scope (`/mcp/<scope>`).
 - **Separate restarts:** a crash or a release of one agent leaves the others running.
-- **Who calls whom:** the orchestrator (`agent-orchestration`, the one on `:8000` and `/api/agent`) calls the others over A2A, by their service names. homelab-ui can call any of them at `/api/agents/<name>`.
+- **Who calls whom:** the supervisor (`agent-supervisor`, the one on `:8000` and `/api/agent`) answers what needs no data and calls the others over A2A, by their service names. homelab-ui can call any of them at `/api/agents/<name>`.
 
 ## Where are the passwords stored?
 
@@ -235,7 +235,7 @@ Kubernetes has no `depends_on`. `needs:` in `helmfile.yaml.gotmpl` orders `make 
 |---|---|---|
 | agent-toolbox | grafana-mcp, mongodb-mcp, postgres-mcp | Starts with its own tools; retries each server after 5 s, 10, 20, 40, then every 60 s, and publishes its tools as soon as it answers |
 | each agent | agent-toolbox | Starts and answers without tools; retries the same way, and the tools join without a restart |
-| agent-orchestration | the other agents | Starts without them; reads their cards again every minute, and an agent that comes up joins its list without a restart |
+| agent-supervisor | the other agents | Starts without them; reads their cards again every minute, and an agent that comes up joins its list without a restart |
 
 - Readiness stays about the app itself: a missing MCP server never makes the toolbox not ready.
 - Each server has its own loop. To change the pace, add `MCP_REFRESH_INTERVAL`, `MCP_RETRY_DELAY` or `MCP_MAX_RETRY_DELAY` (seconds, as strings) under `env:` in `apps/agent-toolbox/values.yaml.gotmpl` or `apps/agent-runtime/values.yaml.gotmpl`, then `make apply R=<app>` — raw: `helmfile -l name=<app> apply`. Unset means 60, 5 and 60; never set one empty.
@@ -253,7 +253,7 @@ Kubernetes has no `depends_on`. `needs:` in `helmfile.yaml.gotmpl` orders `make 
 | Why a pod doesn't start | `make events` — raw: `kubectl -n homelab get events --sort-by=.lastTimestamp \| tail -n 40` |
 | Everything, searchable, kept 30 days | Grafana `https://<HOMELAB_DOMAIN>:3000/explore` → **Loki** → `{service_name="<release>"}` |
 
-- In Grafana, the label browser lists every `service_name`. The agents and agent-toolbox send their logs over OTLP, under their own service names: `agent-<name>` for each agent (`agent-orchestration`, `agent-observation`…), `toolbox-service` for the toolbox; a log line with a `trace_id` links to its trace in Tempo.
+- In Grafana, the label browser lists every `service_name`. The agents and agent-toolbox send their logs over OTLP, under their own service names: `agent-<name>` for each agent (`agent-supervisor`, `agent-observation`…), `toolbox-service` for the toolbox; a log line with a `trace_id` links to its trace in Tempo.
 - Levels are lowercase everywhere (`info`, `warn`, `error`): Loki reads OTLP logs' level from their severity number, not from their text (`INFO`), because `log_level_fields` in [`observability/loki/config.yml`](observability/loki/config.yml) leaves out `severity_text`.
 - oauth2-proxy doesn't log Caddy's session checks (`/oauth2/auth`, one per request) nor its health checks; sign-ins, sign-outs and failed sign-ins are still logged. Every request, with its status, is in Caddy's log.
 - Kafka UI writes plain lines, without colour codes ([`message-broker/kafka-ui/logback.xml`](message-broker/kafka-ui/logback.xml)).
@@ -348,7 +348,7 @@ GitHub has the new build under the old version (`1.1.2` here), but the server ke
 
 A pod's settings are its release's values. Change the file, never the pod: a change made with `kubectl edit` is lost at the next deploy.
 
-1. On your Mac, edit the release's values file, `<group>/<release>/values.yaml.gotmpl`. For example `apps/agent-chat/values.yaml.gotmpl`:
+1. On your Mac, edit the release's values file, `<group>/<release>/values.yaml.gotmpl`. For example `apps/agent-observation/values.yaml.gotmpl`:
    ```yaml
    env:
      LOG_LEVEL: DEBUG

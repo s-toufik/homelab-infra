@@ -146,7 +146,7 @@ for api in prometheus/api/v1/targets loki/loki/api/v1/labels tempo/api/search/ta
   expect "signed out, the APIs answer 401: /api/${api%%/*}" equals "$(http_status "$site/api/$api")" "401"
 done
 expect "kube-api reaches the Kubernetes API" equals "$(inside http://kube-api:8001/readyz)" "ok"
-expect "only Caddy and Headlamp reach kube-api" not can_reach agent-orchestration kube-api 8001
+expect "only Caddy and Headlamp reach kube-api" not can_reach agent-supervisor kube-api 8001
 expect "Headlamp answers" contains "$(inside http://headlamp:4466/)" "Headlamp"
 for port in 9090 8080 12345 3100 3200 9308 6274 4466 8100; do
   expect "port $port sends signed-out visitors to the sign-in page" \
@@ -188,13 +188,13 @@ echo "==> apps: homelab-ui, the agents, agent-toolbox"
 expect "homelab-ui answers behind the gateway" contains "$(inside http://homelab-ui:8080/)" "<app-root"
 expect "homelab-ui sends signed-out visitors to the sign-in page" contains "$(redirect_to "$site/")" "/oauth2/sign_in"
 agents="$(sed -n 's/^agents: \[\(.*\)\]$/\1/p' environments/default.yaml | tr -d ' ' | tr ',' ' ')"
-expect "the orchestrator answers on http://${domain}:8000" \
+expect "the supervisor answers on http://${domain}:8000" \
   equals "$(http_status "http://${domain}:8000/actuator/health")" "200"
-llm_url="$(k get deploy agent-orchestration -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="HOMELAB_LLM_BASE_URL")].value}')"
+llm_url="$(k get deploy agent-supervisor -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="HOMELAB_LLM_BASE_URL")].value}')"
 llm_hostport="${llm_url#*://}"; llm_hostport="${llm_hostport%%/*}"
 llm_host="${llm_hostport%%:*}"; llm_port="${llm_hostport##*:}"
 [[ "$llm_port" == "$llm_hostport" ]] && llm_port=80
-a2a_host="$(k get deploy agent-orchestration -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="DB_POSTGRES_A2A_HOST")].value}')"
+a2a_host="$(k get deploy agent-supervisor -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="DB_POSTGRES_A2A_HOST")].value}')"
 for agent in $agents; do
   release="agent-${agent}"
   expect "${release} is ready and its card names it ${agent}" \
@@ -207,8 +207,8 @@ for agent in $agents; do
   fi
 done
 [[ -n "$a2a_host" ]] || note "the agents have no DB_POSTGRES_A2A_HOST: their A2A tasks are in SQLite"
-listed="$(inside http://agent-orchestration:8000/v1/agents | jq -r '.agents | length' 2>/dev/null || echo 0)"
-expect "the orchestrator knows every agent (${listed} of $(wc -w <<<"$agents" | tr -d ' '))" \
+listed="$(inside http://agent-supervisor:8000/v1/agents | jq -r '.agents | length' 2>/dev/null || echo 0)"
+expect "the supervisor knows every agent (${listed} of $(wc -w <<<"$agents" | tr -d ' '))" \
   equals "$listed" "$(wc -w <<<"$agents" | tr -d ' ')"
 expect "agent-toolbox answers on http://${domain}:8001 (its host name is allowed)" \
   equals "$(http_status "http://${domain}:8001/actuator/health")" "200"
@@ -225,9 +225,11 @@ for tool in grafana_search_dashboards mongodb_find postgres_execute_sql; do
   expect "agent-toolbox offers $tool" contains "$toolbox_tools" "\"$tool\""
 done
 observation_tools="$(mcp_tools /observation)"
-expect "the observation scope offers Grafana's tools and python_executor" \
+expect "the observation scope offers Grafana's tools" \
   contains "$observation_tools" '"grafana_search_dashboards"'
-expect "the observation scope has its own python_executor" contains "$observation_tools" '"python_executor"'
+expect "the observation scope doesn't offer python_executor (not in its tools)" \
+  not contains "$observation_tools" '"python_executor"'
+expect "the analysis scope has its own python_executor" contains "$(mcp_tools /analysis)" '"python_executor"'
 expect "the observation scope doesn't offer PostgreSQL's tools" \
   not contains "$observation_tools" '"postgres_execute_sql"'
 
