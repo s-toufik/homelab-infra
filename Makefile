@@ -6,7 +6,9 @@ MAKEFLAGS    += --no-print-directory
 NS := homelab
 R ?=
 G ?=
-SELECT := $(if $(R),-l name=$(R),$(if $(G),-l group=$(G),))
+S ?=
+LABEL  := $(if $(R),name=$(R),$(if $(G),group=$(G),$(if $(S),scope=$(S),)))
+SELECT := $(if $(LABEL),-l $(LABEL),)
 TAIL ?= 200
 ACCOUNT ?=
 SECRET ?=
@@ -16,7 +18,7 @@ KEY ?=
 
 .PHONY: help
 help: ## Show this help
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make \033[36m<target>\033[0m [R=<release>] [G=<group>]\n"} \
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make \033[36m<target>\033[0m [R=<release> | G=<group> | S=<scope>]\n"} \
 	  /^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 } \
 	  /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
 	@echo
@@ -52,19 +54,19 @@ validate: ## Check before deploying: tools, cluster, firewall, Secrets, the trai
 ##@ Deploy (helmfile)
 
 .PHONY: diff
-diff: ## Show what apply would change [R=… | G=…]
+diff: ## Show what apply would change [R=… | G=… | S=…]
 	@helmfile $(SELECT) diff
 
 .PHONY: apply
-apply: ## Install or upgrade what changed [R=… | G=…]
+apply: ## Install or upgrade what changed [R=… | G=… | S=…]
 	@helmfile $(SELECT) apply
 
 .PHONY: sync
-sync: ## Install or upgrade even without changes, re-running deploy jobs [R=… | G=…]
+sync: ## Install or upgrade even without changes, re-running deploy jobs [R=… | G=… | S=…]
 	@helmfile $(SELECT) sync
 
 .PHONY: template
-template: ## Print the rendered Kubernetes manifests [R=… | G=…]
+template: ## Print the rendered Kubernetes manifests [R=… | G=… | S=…]
 	@helmfile $(SELECT) template
 
 .PHONY: releases
@@ -76,13 +78,13 @@ rollback: ## Go back to a release's previous revision: make rollback R=<release>
 	@[ -n "$(R)" ] || { echo "Usage: make rollback R=<release>"; exit 1; }
 	@helm -n $(NS) rollback $(R)
 
+.PHONY: pull
+pull: ## Download the images again, same version (a tag rebuilt on GitHub), then make restart: R=… | G=… | S=…
+	@./scripts/rollout.sh pull "$(LABEL)"
+
 .PHONY: restart
-restart: ## Restart a release's pods and wait until they're ready (same version and settings): make restart R=<release>
-	@[ -n "$(R)" ] || { echo "Usage: make restart R=<release>"; exit 1; }
-	@workloads="$$(kubectl -n $(NS) get deploy,statefulset,daemonset -l app.kubernetes.io/instance=$(R) -o name)"; \
-	  [ -n "$$workloads" ] || { echo "No Deployment or StatefulSet for release '$(R)'"; exit 1; }; \
-	  for workload in $$workloads; do kubectl -n $(NS) rollout restart "$$workload"; done; \
-	  for workload in $$workloads; do kubectl -n $(NS) rollout status "$$workload" --timeout=10m; done
+restart: ## Restart the pods and wait until they're ready (same version and settings): R=… | G=… | S=…
+	@./scripts/rollout.sh restart "$(LABEL)"
 
 ##@ Inspect
 

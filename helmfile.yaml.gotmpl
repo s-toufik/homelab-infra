@@ -219,7 +219,7 @@ releases:
     inherit: [{ template: homelab }]
     chart: homelab/agent-runtime
     version: {{ $.Values.apps.agentRuntime }}
-    labels: { group: apps, agent: {{ $agent }} }
+    labels: { group: apps, scope: agents, agent: {{ $agent }} }
     needs: [homelab/mongodb, homelab/postgres, homelab/agent-toolbox]
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, agent-runtime, mongodb, pg-role-agent-runtime] }

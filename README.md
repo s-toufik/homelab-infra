@@ -212,6 +212,7 @@ homelab-infra/
 | `secrets.sh` | `make secrets`, `secret-*`, `show-secrets`, every release's presync hook | creates, lists, shows, sets, rotates and checks the Secrets (`SPECS`: every Secret and key) |
 | `validate.sh` | `make validate` | checks before a deploy: tools, cluster, firewall, Secrets, the train renders, no port clash, each config with its own tool |
 | `verify.sh` | `make verify` | checks after a deploy, group by group, on the running homelab |
+| `rollout.sh` | `make pull`, `restart` | finds the releases of `R=`, `G=` or `S=` (`helmfile list`), then pulls their images again (`crictl pull`, once per image) or restarts their workloads and waits |
 | `users.sh` | `make user-*`, `sessions-revoke` | sign-in accounts, with Keycloak's `kcadm.sh` run inside its pod |
 | `dbmate.sh` | `make migrate-status`, `migrate-rollback` | a one-off copy of the db-migrate job |
 | `backups.sh` | `make backup`, `backups`, `restore-*` | runs the nightly backup jobs now, lists and restores dumps |

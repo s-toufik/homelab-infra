@@ -253,7 +253,7 @@ Kubernetes has no `depends_on`. `needs:` in `helmfile.yaml.gotmpl` orders `make 
 | Why a pod doesn't start | `make events` — raw: `kubectl -n homelab get events --sort-by=.lastTimestamp \| tail -n 40` |
 | Everything, searchable, kept 30 days | Grafana `https://<HOMELAB_DOMAIN>:3000/explore` → **Loki** → `{service_name="<release>"}` |
 
-- In Grafana, the label browser lists every `service_name`. agent-runtime and agent-toolbox send their logs over OTLP, under their own service names; a log line with a `trace_id` links to its trace in Tempo.
+- In Grafana, the label browser lists every `service_name`. The agents and agent-toolbox send their logs over OTLP, under their own service names: `agent-<name>` for each agent (`agent-orchestration`, `agent-observation`…), `toolbox-service` for the toolbox; a log line with a `trace_id` links to its trace in Tempo.
 - Levels are lowercase everywhere (`info`, `warn`, `error`): Loki reads OTLP logs' level from their severity number, not from their text (`INFO`), because `log_level_fields` in [`observability/loki/config.yml`](observability/loki/config.yml) leaves out `severity_text`.
 - oauth2-proxy doesn't log Caddy's session checks (`/oauth2/auth`, one per request) nor its health checks; sign-ins, sign-outs and failed sign-ins are still logged. Every request, with its status, is in Caddy's log.
 - Kafka UI writes plain lines, without colour codes ([`message-broker/kafka-ui/logback.xml`](message-broker/kafka-ui/logback.xml)).
@@ -311,7 +311,8 @@ kubectl -n homelab delete pod -l cnpg.io/cluster=postgres      # PostgreSQL: its
 |---|---|---|
 | Deploy what changed | `make apply R=<release>` — raw: `helmfile -l name=<release> apply` | Only if its files or version changed |
 | Redeploy even without a change | `make sync R=<release>` — raw: `helmfile -l name=<release> sync` | Re-applies it and re-runs its jobs; brings back what was deleted by hand; pods restart only if something changed |
-| Restart its pods | `make restart R=<release>` — raw: `kubectl -n homelab rollout restart deploy/<release>` (`statefulset/<release>` for a database), then `kubectl -n homelab rollout status …` | New pods, same settings; waits until they're ready |
+| Restart its pods | `make restart R=<release>` (or `G=<group>`, or `S=agents`) — raw: `kubectl -n homelab rollout restart deploy/<release>` (`statefulset/<release>` for a database), then `kubectl -n homelab rollout status …` | New pods, same settings; waits until they're ready |
+| Download its image again, same version | `make pull R=<release>` (or `G=…`, `S=…`) — raw: `sudo k3s crictl pull <image>` | The tag points at the build on Docker Hub; the pods change only at `make restart` |
 | Reinstall it | `helm -n homelab uninstall <release>`, then `make apply R=<release>` | Everything is recreated; its volumes are kept and taken back, its data with them |
 | Go back to the previous revision | `make rollback R=<release>` — raw: `helm -n homelab rollback <release>` | Then set the old version in `environments/versions.yaml`, or the next `make apply` upgrades again |
 | See its revisions | `helm -n homelab history <release>` | |
@@ -328,7 +329,7 @@ kubectl -n homelab delete pod -l cnpg.io/cluster=postgres      # PostgreSQL: its
 GitHub has the new build under the old version (`1.1.2` here), but the server keeps the old one in two caches: helmfile's chart cache (`Skipping refresh for chart … shared cache` in `make apply`), and k3s's images (pods pull an image only if it isn't there yet, `imagePullPolicy: IfNotPresent`). On the server, in `homelab-infra`:
 
 1. **Forget the cached chart:** `helmfile cache cleanup`. The next deploy downloads the chart again.
-2. **Remove the cached image:** `sudo k3s crictl rmi docker.io/toufik142/homelab-ui:1.1.2`. It prints `Deleted: …`; if the image is in use, do step 4, then this step and step 4 again.
+2. **Pull the new build under the same tag:** `make pull R=homelab-ui` — raw: `sudo k3s crictl pull toufik142/homelab-ui:1.1.2` (it asks your password for sudo). It prints `Image is up to date for sha256:…`, the new digest. The tag now points at the new build; the running pods keep the old one until step 4, and `sudo k3s crictl rmi --prune` removes it afterwards.
 3. **Deploy the downloaded chart:** `make sync R=homelab-ui` — raw: `helmfile -l name=homelab-ui sync`. It ends with `UPDATED RELEASES: homelab-ui`.
 4. **Replace the pods, so they pull the image:** `make restart R=homelab-ui` — raw: `kubectl -n homelab rollout restart deploy/homelab-ui`. `make ps` shows a new homelab-ui pod.
 5. **Check the pod runs the new build:**
@@ -340,6 +341,7 @@ GitHub has the new build under the old version (`1.1.2` here), but the server ke
 
 - Only the code changed: steps 2, 4, 5 are enough. The chart changed too (`devops/helm/values.yml`): all of them.
 - Same for agent-runtime and agent-toolbox: their release name and image (`toufik142/agent-runtime`, `toufik142/agent-toolbox`).
+- agent-runtime is one image for every agent: `make pull S=agents` pulls it once, `make restart S=agents` replaces every agent's pod; step 5 for all of them: `kubectl -n homelab get pods -l homelab.io/role=agent -o custom-columns=POD:.metadata.name,IMAGE:.status.containerStatuses[0].imageID`.
 - Next time, tag a new version instead (`v1.1.3`, then `apps.homelabUi: 1.1.3` in `environments/versions.yaml`, `make apply R=homelab-ui`): a new number skips both caches, and `make rollback` still knows the previous build.
 
 ## How do I change a pod's settings and redeploy it?
