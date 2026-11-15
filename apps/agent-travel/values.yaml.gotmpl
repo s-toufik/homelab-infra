@@ -1,0 +1,11 @@
+podLabels:
+  homelab.io/role: agent
+
+env:
+  AGENT: travel
+  DB_MONGO_CHECKPOINT_NAME: agent_travel
+  A2A_TASKS_TABLE: tasks_travel
+  HOMELAB_LLM_BASE_URL: http://llm:8080/v1
+
+ports:
+  - { name: http, port: 8000 }

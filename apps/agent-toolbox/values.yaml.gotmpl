@@ -1,7 +1,7 @@
 networkPolicy:
   ingress:
     - from:
-        - podSelector: { matchLabels: { app.kubernetes.io/name: agent-runtime } }
+        - podSelector: { matchLabels: { homelab.io/role: agent } }
         - podSelector: { matchLabels: { app.kubernetes.io/name: mcp-inspector } }
         - podSelector: { matchLabels: { app.kubernetes.io/name: caddy } }
         - ipBlock: { cidr: 100.64.0.0/10 }

@@ -1,0 +1,15 @@
+podLabels:
+  homelab.io/role: agent
+
+env:
+  AGENT: orchestration
+  DB_MONGO_CHECKPOINT_NAME: agent_orchestration
+  A2A_TASKS_TABLE: tasks_orchestration
+  HOMELAB_LLM_BASE_URL: http://llm:8080/v1
+  AGENT_CHAT_URL: http://agent-chat:8000
+  AGENT_OBSERVATION_URL: http://agent-observation:8000
+  AGENT_ANALYSIS_URL: http://agent-analysis:8000
+  AGENT_CODING_URL: http://agent-coding:8000
+  AGENT_SECURITY_URL: http://agent-security:8000
+  AGENT_KITCHEN_URL: http://agent-kitchen:8000
+  AGENT_TRAVEL_URL: http://agent-travel:8000

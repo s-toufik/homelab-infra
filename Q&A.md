@@ -27,20 +27,29 @@ A tag `vX.Y.Z-rc.N` on `develop` of agent-runtime (or agent-toolbox) publishes t
 2. Pick how long it should stay:
    - **Just to try it** (undone by the next `make apply`):
      ```bash
-     helmfile -l name=agent-runtime apply --set image.tag=X.Y.Z-rc.N
+     helmfile -l group=apps -l agent apply --set image.tag=X.Y.Z-rc.N
      ```
-   - **Until you remove it**: on your Mac, in `apps/agent-runtime/values.yaml.gotmpl`, add
+   - **Until you remove it**: on your Mac, in each agent's `apps/agent-<name>/values.yaml.gotmpl` (or one of them, to try one agent), add
      ```yaml
      image:
        tag: X.Y.Z-rc.N
      ```
-     commit, push; on the server `git pull`, `make apply R=agent-runtime` — raw: `helmfile -l name=agent-runtime apply`.
-3. Check: `kubectl -n homelab get deploy agent-runtime -o jsonpath='{.spec.template.spec.containers[0].image}'; echo` → `toufik142/agent-runtime:X.Y.Z-rc.N`; `make logs R=agent-runtime`.
-4. Back to the release: remove the `image:` lines (or just `make apply R=agent-runtime` for the "just to try it" way).
+     commit, push; on the server `git pull`, `make apply G=apps` — raw: `helmfile -l group=apps apply`.
+3. Check: `kubectl -n homelab get deploy agent-chat -o jsonpath='{.spec.template.spec.containers[0].image}'; echo` → `toufik142/agent-runtime:X.Y.Z-rc.N`; `make logs R=agent-chat`.
+4. Back to the release: remove the `image:` lines (or just `make apply G=apps` for the "just to try it" way).
 
 - Use `X.Y.Z-rc.N`, not `dev`: the server keeps an image it already has, so `:dev` would not pick up a newer pre-release.
-- Only the image changes. The chart, with the repository's `devops/helm/values.yml` (env variables, Secrets, probes), stays the one of the release. A pre-release that needs a new env variable needs it in `apps/agent-runtime/values.yaml.gotmpl` too, under `env:`.
+- Only the image changes. The chart, with the repository's `devops/helm/values.yml` (env variables, Secrets, probes), stays the one of the release. A pre-release that needs a new env variable needs it in the agents' `apps/agent-<name>/values.yaml.gotmpl` too, under `env:`.
 - Same for agent-toolbox: `name=agent-toolbox`, `apps/agent-toolbox/values.yaml.gotmpl`, image `toufik142/agent-toolbox:X.Y.Z-rc.N`.
+
+## Why is there one pod per agent?
+
+Every agent is the same agent-runtime image started with `AGENT=<name>`: it reads `agents/<name>/` (its name, skills, tool scope, turns, prompts) and becomes that agent. One pod each keeps them apart:
+
+- **Separate state:** each agent has its own conversations (MongoDB database `agent_<name>`) and A2A tasks (PostgreSQL table `tasks_<name>`), so one agent never reads another's.
+- **Separate tools:** each one connects to its own toolbox scope (`/mcp/<scope>`).
+- **Separate restarts:** a crash or a release of one agent leaves the others running.
+- **Who calls whom:** the orchestrator (`agent-orchestration`, the one on `:8000` and `/api/agent`) calls the others over A2A, by their service names. homelab-ui can call any of them at `/api/agents/<name>`.
 
 ## Where are the passwords stored?
 
@@ -71,7 +80,7 @@ Nothing is in git: not the passwords, not `environments/local.yaml` (only the se
 | `agent-runtime` | `llm-api-key` | NVIDIA's API key, for the agent's NVIDIA models (typed by you) |
 | `mongodb-mcp` | `username`, `password` | MongoDB's MCP server (user `mcp`) |
 | `pg-role-mcp` | `username`, `password` | PostgreSQL's MCP server (role `mcp`) |
-| `pg-role-agent-runtime` | `username`, `password` | agent-runtime's A2A tasks (role `agent_runtime`) |
+| `pg-role-agent-runtime` | `username`, `password` | the agents' A2A tasks (role `agent_runtime`, one table per agent) |
 | `grafana-mcp` | `token` | Grafana's MCP server: a Grafana service-account token (typed by you) |
 
 **Read one value:**
@@ -172,7 +181,7 @@ Its own: one user per app, which can only touch its own schema and what you gran
 | Each app or API | its own (`myapi`) | `pg-role-myapi` | its schema and what you grant it |
 | PostgREST (Tasker) | `postgrest` | `pg-role-postgrest` | the Tasker tables, only the signed-in user's rows |
 | Keycloak | `keycloak` | `pg-role-keycloak` | the database `keycloak` |
-| agent-runtime | `agent_runtime` | `pg-role-agent-runtime` | the database `agent_runtime` (its A2A tasks) |
+| the agents (`agent-<name>`) | `agent_runtime` | `pg-role-agent-runtime` | the database `agent_runtime` (their A2A tasks, table `tasks_<name>` each) |
 | `homelab` | `homelab` | `postgres-app` | owns the database `homelab`; unused |
 
 ## How do I connect to MongoDB?
@@ -225,7 +234,8 @@ Kubernetes has no `depends_on`. `needs:` in `helmfile.yaml.gotmpl` orders `make 
 | Who | Needs | When it's missing |
 |---|---|---|
 | agent-toolbox | grafana-mcp, mongodb-mcp, postgres-mcp | Starts with its own tools; retries each server after 5 s, 10, 20, 40, then every 60 s, and publishes its tools as soon as it answers |
-| agent-runtime | agent-toolbox | Starts and answers without tools; retries the same way, and the tools join without a restart |
+| each agent | agent-toolbox | Starts and answers without tools; retries the same way, and the tools join without a restart |
+| agent-orchestration | the other agents | Starts without them; reads their cards again every minute, and an agent that comes up joins its list without a restart |
 
 - Readiness stays about the app itself: a missing MCP server never makes the toolbox not ready.
 - Each server has its own loop. To change the pace, add `MCP_REFRESH_INTERVAL`, `MCP_RETRY_DELAY` or `MCP_MAX_RETRY_DELAY` (seconds, as strings) under `env:` in `apps/agent-toolbox/values.yaml.gotmpl` or `apps/agent-runtime/values.yaml.gotmpl`, then `make apply R=<app>` — raw: `helmfile -l name=<app> apply`. Unset means 60, 5 and 60; never set one empty.
@@ -336,7 +346,7 @@ GitHub has the new build under the old version (`1.1.2` here), but the server ke
 
 A pod's settings are its release's values. Change the file, never the pod: a change made with `kubectl edit` is lost at the next deploy.
 
-1. On your Mac, edit the release's values file, `<group>/<release>/values.yaml.gotmpl`. For example `apps/agent-runtime/values.yaml.gotmpl`:
+1. On your Mac, edit the release's values file, `<group>/<release>/values.yaml.gotmpl`. For example `apps/agent-chat/values.yaml.gotmpl`:
    ```yaml
    env:
      LOG_LEVEL: DEBUG

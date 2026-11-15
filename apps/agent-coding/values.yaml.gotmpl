@@ -1,0 +1,11 @@
+podLabels:
+  homelab.io/role: agent
+
+env:
+  AGENT: coding
+  DB_MONGO_CHECKPOINT_NAME: agent_coding
+  A2A_TASKS_TABLE: tasks_coding
+  HOMELAB_LLM_BASE_URL: http://llm:8080/v1
+
+ports:
+  - { name: http, port: 8000 }

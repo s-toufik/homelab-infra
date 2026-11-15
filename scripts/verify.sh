@@ -25,7 +25,7 @@ inside() { k exec deploy/caddy -c caddy -- wget -q -T 5 -O - "$@" 2>/dev/null ||
 mcp_tools() {
   k exec deploy/caddy -c caddy -- wget -q -T 20 -O - \
     --header 'Content-Type: application/json' --header 'Accept: application/json, text/event-stream' \
-    --post-data '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' http://agent-toolbox:8001/mcp 2>/dev/null || true
+    --post-data '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' "http://agent-toolbox:8001/mcp${1:-}" 2>/dev/null || true
 }
 series() { inside "http://prometheus:9090/api/v1/query?query=$(jq -rn --arg q "$1" '$q | @uri')" | jq -r '.data.result | length' 2>/dev/null || echo 0; }
 positive() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 > 0 )); }
@@ -146,7 +146,7 @@ for api in prometheus/api/v1/targets loki/loki/api/v1/labels tempo/api/search/ta
   expect "signed out, the APIs answer 401: /api/${api%%/*}" equals "$(http_status "$site/api/$api")" "401"
 done
 expect "kube-api reaches the Kubernetes API" equals "$(inside http://kube-api:8001/readyz)" "ok"
-expect "only Caddy and Headlamp reach kube-api" not can_reach agent-runtime kube-api 8001
+expect "only Caddy and Headlamp reach kube-api" not can_reach agent-orchestration kube-api 8001
 expect "Headlamp answers" contains "$(inside http://headlamp:4466/)" "Headlamp"
 for port in 9090 8080 12345 3100 3200 9308 6274 4466 8100; do
   expect "port $port sends signed-out visitors to the sign-in page" \
@@ -184,25 +184,32 @@ expect "llm-sd lists the loaded models for Prometheus" contains "$(inside http:/
 expect "the MCP Inspector reaches agent-toolbox" node_can_reach mcp-inspector agent-toolbox 8001
 expect "the MCP Inspector can't reach PostgreSQL" not node_can_reach mcp-inspector postgres-rw 5432
 
-echo "==> apps: homelab-ui, agent-runtime, agent-toolbox"
+echo "==> apps: homelab-ui, the agents, agent-toolbox"
 expect "homelab-ui answers behind the gateway" contains "$(inside http://homelab-ui:8080/)" "<app-root"
 expect "homelab-ui sends signed-out visitors to the sign-in page" contains "$(redirect_to "$site/")" "/oauth2/sign_in"
-expect "agent-runtime answers on http://${domain}:8000" \
+agents="$(sed -n 's/^agents: \[\(.*\)\]$/\1/p' environments/default.yaml | tr -d ' ' | tr ',' ' ')"
+expect "the orchestrator answers on http://${domain}:8000" \
   equals "$(http_status "http://${domain}:8000/actuator/health")" "200"
-llm_url="$(k get deploy agent-runtime -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LLM_BASE_URL")].value}')"
-llm_scheme="${llm_url%%://*}"; llm_hostport="${llm_url#*://}"; llm_hostport="${llm_hostport%%/*}"
+llm_url="$(k get deploy agent-orchestration -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="HOMELAB_LLM_BASE_URL")].value}')"
+llm_hostport="${llm_url#*://}"; llm_hostport="${llm_hostport%%/*}"
 llm_host="${llm_hostport%%:*}"; llm_port="${llm_hostport##*:}"
-[[ "$llm_port" == "$llm_hostport" ]] && { [[ "$llm_scheme" == "https" ]] && llm_port=443 || llm_port=80; }
-expect "agent-runtime reaches its LLM provider (${llm_host}:${llm_port})" can_reach agent-runtime "$llm_host" "$llm_port"
-expect "agent-runtime reaches agent-toolbox" can_reach agent-runtime agent-toolbox 8001
-expect "agent-runtime reaches PostgreSQL" can_reach agent-runtime postgres-rw 5432
-a2a_host="$(k get deploy agent-runtime -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="DB_POSTGRES_A2A_HOST")].value}')"
-if [[ -n "$a2a_host" ]]; then
-  expect "agent-runtime keeps its A2A tasks in PostgreSQL" \
-    equals "$(psql_in agent_runtime -c "SELECT to_regclass('public.tasks') IS NOT NULL" 2>/dev/null || true)" "t"
-else
-  note "agent-runtime has no DB_POSTGRES_A2A_HOST yet: its A2A tasks are in SQLite"
-fi
+[[ "$llm_port" == "$llm_hostport" ]] && llm_port=80
+a2a_host="$(k get deploy agent-orchestration -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="DB_POSTGRES_A2A_HOST")].value}')"
+for agent in $agents; do
+  release="agent-${agent}"
+  expect "${release} is ready and its card names it ${agent}" \
+    contains "$(inside "http://${release}:8000/.well-known/agent-card.json")" "\"name\":\"${agent}\""
+  expect "${release} reaches its LLM provider (${llm_host}:${llm_port})" can_reach "$release" "$llm_host" "$llm_port"
+  expect "${release} reaches agent-toolbox" can_reach "$release" agent-toolbox 8001
+  if [[ -n "$a2a_host" ]]; then
+    expect "${release} keeps its A2A tasks in PostgreSQL (table tasks_${agent})" \
+      equals "$(psql_in agent_runtime -c "SELECT to_regclass('public.tasks_${agent}') IS NOT NULL" 2>/dev/null || true)" "t"
+  fi
+done
+[[ -n "$a2a_host" ]] || note "the agents have no DB_POSTGRES_A2A_HOST: their A2A tasks are in SQLite"
+listed="$(inside http://agent-orchestration:8000/v1/agents | jq -r '.agents | length' 2>/dev/null || echo 0)"
+expect "the orchestrator knows every agent (${listed} of $(wc -w <<<"$agents" | tr -d ' '))" \
+  equals "$listed" "$(wc -w <<<"$agents" | tr -d ' ')"
 expect "agent-toolbox answers on http://${domain}:8001 (its host name is allowed)" \
   equals "$(http_status "http://${domain}:8001/actuator/health")" "200"
 expect "agent-toolbox reaches the internet" can_reach agent-toolbox integrate.api.nvidia.com 443
@@ -217,6 +224,12 @@ toolbox_tools="$(mcp_tools)"
 for tool in grafana_search_dashboards mongodb_find postgres_execute_sql; do
   expect "agent-toolbox offers $tool" contains "$toolbox_tools" "\"$tool\""
 done
+observation_tools="$(mcp_tools /observation)"
+expect "the observation scope offers Grafana's tools and python_executor" \
+  contains "$observation_tools" '"grafana_search_dashboards"'
+expect "the observation scope has its own python_executor" contains "$observation_tools" '"python_executor"'
+expect "the observation scope doesn't offer PostgreSQL's tools" \
+  not contains "$observation_tools" '"postgres_execute_sql"'
 
 echo
 if (( errors > 0 )); then red "$errors check(s) failed."; exit 1; fi

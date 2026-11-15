@@ -16,3 +16,4 @@ mcp:
     write: false
   postgres:
     write: false
+agents: [orchestration, chat, observation, analysis, coding, security, kitchen, travel]

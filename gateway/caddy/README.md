@@ -9,7 +9,8 @@ Browser ── HTTPS ──► caddy ── "signed in?" ──► oauth2-proxy 
                        │
   :443   /healthz           answered by Caddy ("OK", no sign-in): HTTPS and certificate check
          /                  homelab-ui
-         /api/agent/…       agent-runtime   (/v1/*, /actuator/health/* only; streaming on)
+         /api/agent/…       agent-orchestration   (/v1/*, /actuator/health/* only; streaming on)
+         /api/agents/<n>/…  agent-<n>             (the same, for each agent)
          /api/prometheus/…  prometheus      (queries, labels, targets, rules, alerts; GET only)
          /api/loki/…        loki            (queries, labels, series; GET only)
          /api/tempo/…       tempo           (search, tags, traces; GET only)
@@ -30,7 +31,7 @@ Browser ── HTTPS ──► caddy ── "signed in?" ──► oauth2-proxy 
   :8090                     llm             (signed in, or `Authorization: Bearer <LLM_GATEWAY_API_KEY>`)
   :6274                     mcp-inspector   (signed in; Host rewritten to mcp-inspector:6274) ─► agent-toolbox
   :4466                     headlamp        (signed in, admin only) ─► kube-api ─► Kubernetes API
-  :8100                     agent-runtime   (signed in; its API and /docs over HTTPS, :8000 stays plain HTTP for tailnet clients)
+  :8100                     agent-orchestration   (signed in; its API and /docs over HTTPS, :8000 stays plain HTTP for tailnet clients)
 ```
 
 ## Certificate
