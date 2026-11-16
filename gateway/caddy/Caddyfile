@@ -244,7 +244,7 @@
 				route {
 					import admin_only *
 					import no_cross_site_writes
-					@blocked not path_regexp people ^/users(/[0-9a-f-]+(/role-mappings/realm|/reset-password|/logout)?)?$
+					@blocked not path_regexp people ^/users(/[0-9a-f-]+(/role-mappings/realm(/available)?|/reset-password|/logout)?)?$
 					respond @blocked 404
 					forward_auth oauth2-proxy:4180 {
 						uri /oauth2/auth

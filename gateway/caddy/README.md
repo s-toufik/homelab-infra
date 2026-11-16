@@ -64,7 +64,7 @@ Caddy's ports are host ports bound to the Tailscale address only: the tailnet's 
   | `/api/people/`, `/api/kube/` | none: admin only |
 
   The page roles come from [`../keycloak/pages.txt`](../keycloak/pages.txt). A role given or taken counts from the person's next session refresh, at most 4 minutes.
-- `/api/people/` lets homelab-ui's People pages create accounts, give and take page roles, disable, sign out and reset a password. Only `/users`, `/users/<id>`, `/users/<id>/role-mappings/realm`, `/users/<id>/reset-password` and `/users/<id>/logout` pass. It sends Keycloak the admin's own access token, and Keycloak checks it too: the `admin` role carries realm-management's `view-users`, `query-users` and `manage-users`. The Keycloak admin console stays blocked.
+- `/api/people/` lets homelab-ui's People pages create and delete accounts, give and take page roles, disable, sign out and reset a password. Only `/users`, `/users/<id>`, `/users/<id>/role-mappings/realm` (and `/available`, to find a role's id: Keycloak wants the id with the name when giving a role), `/users/<id>/reset-password` and `/users/<id>/logout` pass. It sends Keycloak the admin's own access token, and Keycloak checks it too: the `admin` role carries realm-management's `view-users`, `query-users` and `manage-users`. The Keycloak admin console stays blocked.
 - `/api/account/` sends Keycloak the session's access token (`--pass-access-token`); oauth2-proxy refreshes it every 4 minutes (`--cookie-refresh=4m`), before Keycloak's 5-minute lifetime ends.
 - Caddy deletes `Remote-User`, `X-Gateway-Secret` and the `X-Auth-Request-*` headers from every incoming request before adding its own, and drops the browser's cookies before proxying to anything but Grafana and Keycloak.
 
