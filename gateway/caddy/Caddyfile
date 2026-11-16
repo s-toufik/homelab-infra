@@ -241,20 +241,22 @@
 			}
 
 			handle_path /api/people/* {
-				import admin_only *
-				import no_cross_site_writes
-				@blocked not path_regexp people ^/users(/[0-9a-f-]+(/role-mappings/realm|/reset-password|/logout)?)?$
-				respond @blocked 404
-				forward_auth oauth2-proxy:4180 {
-					uri /oauth2/auth
-					header_up X-Real-IP {remote_host}
-					copy_headers X-Auth-Request-Access-Token
-				}
-				rewrite * /admin/realms/homelab{uri}
-				reverse_proxy keycloak:8080 {
-					header_up Authorization "Bearer {http.request.header.X-Auth-Request-Access-Token}"
-					header_up -X-Auth-Request-Access-Token
-					header_up -Cookie
+				route {
+					import admin_only *
+					import no_cross_site_writes
+					@blocked not path_regexp people ^/users(/[0-9a-f-]+(/role-mappings/realm|/reset-password|/logout)?)?$
+					respond @blocked 404
+					forward_auth oauth2-proxy:4180 {
+						uri /oauth2/auth
+						header_up X-Real-IP {remote_host}
+						copy_headers X-Auth-Request-Access-Token
+					}
+					rewrite * /admin/realms/homelab{uri}
+					reverse_proxy keycloak:8080 {
+						header_up Authorization "Bearer {http.request.header.X-Auth-Request-Access-Token}"
+						header_up -X-Auth-Request-Access-Token
+						header_up -Cookie
+					}
 				}
 			}
 

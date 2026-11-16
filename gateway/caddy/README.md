@@ -74,3 +74,5 @@ Caddy's ports are host ports bound to the Tailscale address only: the tailnet's 
 - A web tool: a site `{$HOMELAB_DOMAIN}:<port> { import signed_in_tool <service>:<port> }`, and the port in [`values.yaml.gotmpl`](values.yaml.gotmpl) with `hostPort`.
 
 `make validate` runs `caddy validate`; apply an edited `Caddyfile` with `make apply R=caddy` (the pod restarts with it).
+
+Caddy runs the directives of a block in its own order, not the written one: `rewrite` comes before `respond`, `forward_auth` and `reverse_proxy`. A route that checks the path the browser asked for and then rewrites it (`/api/people`) wraps its directives in `route { }`, which keeps the written order; otherwise the check sees the rewritten path and refuses everything with 404.
