@@ -114,7 +114,7 @@ verify: ## Check the running homelab, group by group (pods, HTTPS, sign-in, data
 
 ##@ Users (sign-in accounts, managed only from this terminal)
 
-.PHONY: users user-add user-password user-disable user-enable user-unlock user-admin user-unadmin user-remove sessions-revoke
+.PHONY: users user-add user-password user-disable user-enable user-unlock user-admin user-unadmin user-grant user-revoke user-remove sessions-revoke
 users: ## List sign-in accounts
 	@./scripts/users.sh list
 user-add: ## Create an account: make user-add ACCOUNT=<name> (asks email, name, password)
@@ -131,6 +131,10 @@ user-admin: ## Give an account the 'admin' role: make user-admin ACCOUNT=<name>
 	@./scripts/users.sh admin "$(ACCOUNT)"
 user-unadmin: ## Take the 'admin' role away: make user-unadmin ACCOUNT=<name>
 	@./scripts/users.sh unadmin "$(ACCOUNT)"
+user-grant: ## Let an account open a page: make user-grant ACCOUNT=<name> PAGE=<page id>
+	@./scripts/users.sh grant "$(ACCOUNT)" "$(PAGE)"
+user-revoke: ## Take a page away from an account: make user-revoke ACCOUNT=<name> PAGE=<page id>
+	@./scripts/users.sh revoke "$(ACCOUNT)" "$(PAGE)"
 user-remove: ## Delete an account (asks to confirm, optionally its Tasker data): make user-remove ACCOUNT=<name>
 	@./scripts/users.sh remove "$(ACCOUNT)"
 sessions-revoke: ## Sign every account out now (new cookie key + end Keycloak sessions)

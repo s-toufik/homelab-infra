@@ -26,6 +26,19 @@ make users                          # list accounts
 make sessions-revoke                # sign every account out now
 ```
 
+Accounts can also be managed from homelab-ui's **People** pages by an account with the `admin` role: add a person (with a temporary password generated in the browser, shown once, which Keycloak makes them change at their first sign-in), give and take pages, disable, sign out, reset a password. Removing an account stays here, because it may also delete its Tasker data.
+
+## Pages a person may open
+
+Each homelab-ui page has a realm role, listed in [`pages.txt`](pages.txt): `agent:kitchen`, `agent:travel`, `app:tasker`, `page:metrics`… A person sees and opens only the pages whose roles they have; `admin` opens everything. The gateway checks the same roles ([Caddy](../caddy/README.md#session)).
+
+```bash
+make user-grant ACCOUNT=dora PAGE=agent:kitchen
+make user-revoke ACCOUNT=dora PAGE=agent:kitchen
+```
+
+A new page is added to `pages.txt`, then `make apply R=keycloak` creates its role.
+
 Passwords are piped to the keycloak pod on stdin, never put on a command line, so they don't appear in the server's process list or in shell history.
 
 ## Configuration
@@ -33,6 +46,8 @@ Passwords are piped to the keycloak pod on stdin, never put on a command line, s
 The realm is configuration as code: **`sync.sh`** runs in the `keycloak-sync` job after every install and upgrade of the keycloak release, once Keycloak is ready ([`values.yaml.gotmpl`](values.yaml.gotmpl)). It creates the `homelab` realm and the `admin` role if they are missing, and resets everything else to what the file says:
 
 - the password policy, lockout and session settings above, registration and "forgot password" off;
+- a role per page in `pages.txt`, and realm-management's `view-users`, `query-users` and `manage-users` inside the `admin` role (for homelab-ui's People pages);
+- the user profile's `unmanagedAttributePolicy` set to `ENABLED`, so each person can save their homelab-ui theme on their account;
 - the `oauth2-proxy` client (the sign-in check for homelab-ui and the tools) and the `grafana` client (Grafana's own Keycloak sign-in, with a `roles` claim so the `admin` role becomes Grafana Admin), with their secrets from the Kubernetes Secrets `oauth2-proxy` and `grafana-oidc`.
 
 So a change to `sync.sh` is applied by the next `make apply R=keycloak`, and a client secret rotated with `make secret-rotate` by `make sync R=keycloak`. Accounts are never touched by the sync.

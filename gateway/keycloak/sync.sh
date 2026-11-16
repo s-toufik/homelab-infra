@@ -48,6 +48,22 @@ if ! k get "roles/admin" -r "$realm" >/dev/null 2>&1; then
   echo "role admin created"
 fi
 
+pages="${PAGES_FILE:-$(dirname "$0")/pages.txt}"
+while IFS= read -r page; do
+  [[ -n "$page" ]] || continue
+  if ! k get "roles/$page" -r "$realm" >/dev/null 2>&1; then
+    k create roles -r "$realm" -s name="$page" -s "description=Can open $page in homelab-ui"
+    echo "role $page created"
+  fi
+done <"$pages"
+
+k add-roles -r "$realm" --rname admin --cclientid realm-management \
+  --rolename view-users --rolename query-users --rolename manage-users
+echo "role admin can manage accounts and their roles"
+
+k update users/profile -r "$realm" -s unmanagedAttributePolicy=ENABLED
+echo "accounts can keep their own attributes (homelab-ui theme)"
+
 client_uuid() {
   k get clients -r "$realm" -q clientId="$1" --fields id --format csv --noquotes
 }

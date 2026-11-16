@@ -51,6 +51,18 @@
 	}
 }
 
+(page_access) {
+	forward_auth {args[0]} oauth2-proxy:4180 {
+		uri /oauth2/auth?allowed_groups={args[1]}
+		header_up X-Real-IP {remote_host}
+
+		@signed_out status 401
+		handle_response @signed_out {
+			respond "Sign in required" 401
+		}
+	}
+}
+
 (no_cross_site_writes) {
 	@cross_site_write {
 		not method GET HEAD OPTIONS
@@ -101,6 +113,7 @@
 			import signed_in_api
 
 			handle_path /api/tasker/* {
+				import page_access * role:admin,role:app:tasker
 				reverse_proxy postgrest:3000 {
 					header_up X-Gateway-Secret {$TASKER_GATEWAY_SECRET}
 					header_up -Authorization
@@ -111,6 +124,8 @@
 			handle_path /api/agent/* {
 				@blocked not path /v1/* /actuator/health/*
 				respond @blocked 404
+				@supervisor_private not path /v1/agents /actuator/health/*
+				import page_access @supervisor_private role:admin,role:agent:supervisor
 				reverse_proxy agent-supervisor:8000 {
 					flush_interval -1
 					header_up -Cookie
@@ -121,6 +136,8 @@
 				@agent path_regexp agent ^/api/agents/(supervisor|observation|analysis|coding|security|kitchen|travel)(/v1/.*|/actuator/health/.*)$
 				handle @agent {
 					rewrite * {re.agent.2}
+					@agent_private not path /v1/agents /actuator/health/*
+					import page_access @agent_private role:admin,role:agent:{re.agent.1}
 					reverse_proxy agent-{re.agent.1}:8000 {
 						flush_interval -1
 						header_up -Cookie
@@ -130,6 +147,7 @@
 			}
 
 			handle_path /api/prometheus/* {
+				import page_access * role:admin,role:page:metrics,role:page:dashboards,role:page:status
 				@blocked not path /api/v1/query /api/v1/query_range /api/v1/series /api/v1/labels /api/v1/label/*/values /api/v1/targets /api/v1/rules /api/v1/alerts /api/v1/metadata
 				respond @blocked 404
 				import read_only
@@ -139,6 +157,7 @@
 			}
 
 			handle_path /api/loki/* {
+				import page_access * role:admin,role:page:logs,role:page:dashboards
 				@blocked not path /loki/api/v1/query /loki/api/v1/query_range /loki/api/v1/labels /loki/api/v1/label/*/values /loki/api/v1/series
 				respond @blocked 404
 				import read_only
@@ -148,6 +167,7 @@
 			}
 
 			handle_path /api/tempo/* {
+				import page_access * role:admin,role:page:traces,role:page:logs
 				@blocked not path /api/search /api/search/tags /api/v2/search/tags /api/v2/search/tag/*/values /api/traces/* /api/v2/traces/*
 				respond @blocked 404
 				import read_only
@@ -157,6 +177,7 @@
 			}
 
 			handle_path /api/alloy/* {
+				import page_access * role:admin,role:page:pipeline
 				@blocked not path /api/v0/web/components /api/v0/web/components/*
 				respond @blocked 404
 				import read_only
@@ -166,6 +187,7 @@
 			}
 
 			handle_path /api/kafka/* {
+				import page_access * role:admin,role:page:kafka
 				@blocked not path /api/clusters /api/clusters/*
 				respond @blocked 404
 				import no_cross_site_writes
@@ -178,6 +200,7 @@
 			}
 
 			handle_path /api/llm/* {
+				import page_access * role:admin,role:page:models
 				@blocked not path /v1/models /v1/chat/completions /running /logs /logs/stream /logs/stream/* /api/models/unload /api/models/unload/*
 				respond @blocked 404
 				import no_cross_site_writes
@@ -190,6 +213,7 @@
 			}
 
 			handle_path /api/toolbox/* {
+				import page_access * role:admin,role:page:tools
 				@blocked not path /mcp /mcp/*
 				respond @blocked 404
 				import no_cross_site_writes
@@ -209,6 +233,24 @@
 					copy_headers X-Auth-Request-Access-Token
 				}
 				rewrite * /realms/homelab/account{uri}
+				reverse_proxy keycloak:8080 {
+					header_up Authorization "Bearer {http.request.header.X-Auth-Request-Access-Token}"
+					header_up -X-Auth-Request-Access-Token
+					header_up -Cookie
+				}
+			}
+
+			handle_path /api/people/* {
+				import admin_only *
+				import no_cross_site_writes
+				@blocked not path_regexp people ^/users(/[0-9a-f-]+(/role-mappings/realm|/reset-password|/logout)?)?$
+				respond @blocked 404
+				forward_auth oauth2-proxy:4180 {
+					uri /oauth2/auth
+					header_up X-Real-IP {remote_host}
+					copy_headers X-Auth-Request-Access-Token
+				}
+				rewrite * /admin/realms/homelab{uri}
 				reverse_proxy keycloak:8080 {
 					header_up Authorization "Bearer {http.request.header.X-Auth-Request-Access-Token}"
 					header_up -X-Auth-Request-Access-Token

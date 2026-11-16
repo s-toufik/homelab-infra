@@ -11,6 +11,7 @@ Browser ── HTTPS ──► caddy ── "signed in?" ──► oauth2-proxy 
          /                  homelab-ui
          /api/agent/…       agent-supervisor      (/v1/*, /actuator/health/* only; streaming on)
          /api/agents/<n>/…  agent-<n>             (the same, for each agent)
+         /api/people/…      keycloak        (/admin/realms/homelab/users*, with the admin's access token; admin only)
          /api/prometheus/…  prometheus      (queries, labels, targets, rules, alerts; GET only)
          /api/loki/…        loki            (queries, labels, series; GET only)
          /api/tempo/…       tempo           (search, tags, traces; GET only)
@@ -47,6 +48,23 @@ Caddy's ports are host ports bound to the Tailscale address only: the tailnet's 
 - Cookie `__Host-homelab`: encrypted and signed with `OAUTH2_PROXY_COOKIE_SECRET`, `HttpOnly`, `Secure`, `SameSite=Lax`, valid 8 hours, shared by every port of `HOMELAB_DOMAIN` (browsers don't scope cookies by port), so one sign-in covers every tool. It holds no password.
 - Disabling an account ends its Keycloak sessions at once, and its homelab session at the latest when the 8 hours are up. `make sessions-revoke` changes the cookie key, so every session ends immediately.
 - The homelab-ui APIs added for its tool pages refuse a change (anything but GET, HEAD, OPTIONS) without the header `X-Homelab-Request: 1`, which a page on another site can't send. Changes to Kafka, unloading a model and the whole Kubernetes API also need the realm role `admin` (`/oauth2/auth?allowed_groups=role:admin`, else 403).
+- Each API also needs the page that uses it (`(page_access)`, else 403): the realm role `admin`, or the page's own role. homelab-ui shows only the pages a person was given, and these rules refuse the rest, so hiding a page is never the only lock.
+
+  | API | Roles that open it (besides `admin`) |
+  |---|---|
+  | `/api/agents/<n>/v1/*`, `/api/agent/v1/*` | `agent:<n>` (`agent:supervisor` for `/api/agent`); `/v1/agents` and health stay open to every signed-in person |
+  | `/api/tasker/` | `app:tasker` |
+  | `/api/prometheus/` | `page:metrics`, `page:dashboards`, `page:status` |
+  | `/api/loki/` | `page:logs`, `page:dashboards` |
+  | `/api/tempo/` | `page:traces`, `page:logs` |
+  | `/api/alloy/` | `page:pipeline` |
+  | `/api/kafka/` | `page:kafka` |
+  | `/api/llm/` | `page:models` |
+  | `/api/toolbox/` | `page:tools` |
+  | `/api/people/`, `/api/kube/` | none: admin only |
+
+  The page roles come from [`../keycloak/pages.txt`](../keycloak/pages.txt). A role given or taken counts from the person's next session refresh, at most 4 minutes.
+- `/api/people/` lets homelab-ui's People pages create accounts, give and take page roles, disable, sign out and reset a password. Only `/users`, `/users/<id>`, `/users/<id>/role-mappings/realm`, `/users/<id>/reset-password` and `/users/<id>/logout` pass. It sends Keycloak the admin's own access token, and Keycloak checks it too: the `admin` role carries realm-management's `view-users`, `query-users` and `manage-users`. The Keycloak admin console stays blocked.
 - `/api/account/` sends Keycloak the session's access token (`--pass-access-token`); oauth2-proxy refreshes it every 4 minutes (`--cookie-refresh=4m`), before Keycloak's 5-minute lifetime ends.
 - Caddy deletes `Remote-User`, `X-Gateway-Secret` and the `X-Auth-Request-*` headers from every incoming request before adding its own, and drops the browser's cookies before proxying to anything but Grafana and Keycloak.
 

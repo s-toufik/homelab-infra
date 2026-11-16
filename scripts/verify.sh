@@ -177,6 +177,14 @@ expect "passwords expire after 90 days" contains "$realm" "forceExpiredPasswordC
 expect "passwords need 12 characters and differ from the last 5" contains "$realm" "length(12) and passwordHistory(5)"
 expect "repeated wrong passwords lock the account" contains "$realm" "brute_force=true"
 expect "nobody can register an account from the web" contains "$realm" "registration=false"
+roles="$(kcadm get roles -r homelab --fields name --format csv --noquotes 2>/dev/null || true)"
+missing="$(grep -vxF -f <(printf '%s\n' "$roles") gateway/keycloak/pages.txt | tr '\n' ' ')"
+expect "every homelab-ui page has its role${missing:+ (missing: $missing)}" equals "$missing" ""
+admin_grants="$(kcadm get roles/admin/composites/clients/"$(kcadm get clients -r homelab -q clientId=realm-management --fields id --format csv --noquotes 2>/dev/null)" -r homelab --fields name --format csv --noquotes 2>/dev/null | sort | tr '\n' ' ' || true)"
+expect "the admin role can manage accounts from homelab-ui" equals "$admin_grants" "manage-users query-users view-users "
+expect "accounts can keep their own theme" \
+  contains "$(kcadm get users/profile -r homelab 2>/dev/null || true)" '"unmanagedAttributePolicy" : "ENABLED"'
+expect "the People API refuses signed-out callers (401)" equals "$(http_status "$site/api/people/users")" "401"
 
 echo "==> llm: LLM, llm-sd, MCP Inspector"
 expect "the LLM serves qwen3-8b (always on)" contains "$(inside http://llm:8080/v1/models)" '"qwen3-8b"'

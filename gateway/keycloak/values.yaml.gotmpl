@@ -49,6 +49,8 @@ configFiles:
     files:
       sync.sh: |
         {{- readFile "sync.sh" | nindent 8 }}
+      pages.txt: |
+        {{- readFile "pages.txt" | nindent 8 }}
 
 jobs:
   sync:

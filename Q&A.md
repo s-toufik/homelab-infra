@@ -121,6 +121,19 @@ It prints one line per value, `<secret>/<key>: <value>`: every Secret `make secr
 - Editing a username afterwards changes nothing: `make secrets` keeps a Secret's stored values, and the services and the operator read them at their first start only.
 - Who owns what in PostgreSQL: `homelab` owns the database `homelab` but none of its tables; the schema `tasker` and its tables belong to `postgres` (the migrations run as `postgres`); `keycloak` owns the database `keycloak` and its tables. Nothing logs in as `homelab`.
 
+## How do I give someone only some pages?
+
+Each homelab-ui page has a Keycloak realm role (`agent:kitchen`, `agent:travel`, `app:tasker`, `page:metrics`…, listed in `gateway/keycloak/pages.txt`). A person sees only the pages whose roles they have, and the gateway refuses the APIs of the others with 403, so hiding a page is never the only lock. `admin` opens everything.
+
+- From homelab-ui: **People → Access**, tick a page in the person's column.
+- From the terminal: `make user-grant ACCOUNT=dora PAGE=agent:kitchen`, and `make user-revoke` to take it back.
+
+It counts from the person's next session refresh, at most 4 minutes later. People added from homelab-ui get a temporary password, shown once, that they change at their first sign-in.
+
+## Why does the admin role carry realm-management roles?
+
+homelab-ui's People pages call Keycloak's admin REST API through the gateway (`/api/people/`) with the signed-in admin's own token. Keycloak only accepts it because `admin` includes realm-management's `view-users`, `query-users` and `manage-users` (set by `gateway/keycloak/sync.sh`). The gateway also requires `admin` and lets only the account paths through; the Keycloak admin console stays blocked.
+
 ## How do I connect pgAdmin 4 to PostgreSQL?
 
 Use `postgres`: it sees every table. PostgreSQL isn't open to the tailnet, so pgAdmin goes through SSH to the server.

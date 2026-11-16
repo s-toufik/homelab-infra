@@ -6,9 +6,12 @@ REALM=homelab
 MIN_LENGTH=12
 action="${1:-}"
 account="${2:-}"
+page="${3:-}"
+PAGES_FILE="$(dirname "$0")/../gateway/keycloak/pages.txt"
 
 usage() {
   echo "Usage: make user-add|user-password|user-disable|user-enable|user-unlock|user-admin|user-unadmin|user-remove ACCOUNT=<name>"
+  echo "       make user-grant|user-revoke ACCOUNT=<name> PAGE=<page id>"
   echo "       make users | make sessions-revoke"
   exit 1
 }
@@ -17,6 +20,14 @@ need_account() {
   [[ -n "$account" ]] || usage
   [[ "$account" =~ ^[a-z0-9][a-z0-9._-]{1,62}$ ]] ||
     { red "Account names use lowercase letters, digits, '.', '_' or '-' (2-63 characters)."; exit 1; }
+}
+
+need_page() {
+  grep -qxF -- "$page" "$PAGES_FILE" || {
+    red "Unknown page '$page'. Pages:"
+    sed 's/^/  /' "$PAGES_FILE" >&2
+    exit 1
+  }
 }
 
 ask() {
@@ -108,6 +119,20 @@ case "$action" in
     user_id >/dev/null
     kcadm remove-roles -r "$REALM" --uusername "$account" --rolename admin
     green "Account '$account' no longer has the 'admin' role (Grafana: Viewer from its next sign-in)."
+    ;;
+  grant)
+    need_account
+    need_page
+    user_id >/dev/null
+    kcadm add-roles -r "$REALM" --uusername "$account" --rolename "$page"
+    green "Account '$account' can now open $page (from its next sign-in check, at most 4 minutes)."
+    ;;
+  revoke)
+    need_account
+    need_page
+    user_id >/dev/null
+    kcadm remove-roles -r "$REALM" --uusername "$account" --rolename "$page"
+    green "Account '$account' can no longer open $page (from its next sign-in check, at most 4 minutes)."
     ;;
   remove)
     need_account

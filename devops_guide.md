@@ -978,6 +978,18 @@ Apps get the new `app` chart with their next release (their CI builds on the lat
 3. Optional admin: `make user-admin ACCOUNT=<name>`.
 4. Send the person `https://<HOMELAB_DOMAIN>/`.
 
+**Give someone access to a page**
+1. `make user-grant ACCOUNT=<name> PAGE=<page id>` — raw: `./scripts/users.sh grant <name> <page id>`
+2. Page ids: `cat gateway/keycloak/pages.txt`.
+3. Or in homelab-ui: **People → Access**, tick the box.
+
+**Take a page away**
+- `make user-revoke ACCOUNT=<name> PAGE=<page id>` — raw: `./scripts/users.sh revoke <name> <page id>`
+
+**Add a page that can be given**
+1. Add its id to `gateway/keycloak/pages.txt`.
+2. `make apply R=keycloak` — raw: `helmfile -l name=keycloak apply`
+
 **Set a new password for someone**
 1. `make user-password ACCOUNT=<name>` — raw: `./scripts/users.sh password <name>`
 2. Enter the new password twice.
