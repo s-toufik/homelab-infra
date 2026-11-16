@@ -32,6 +32,6 @@ images:
   python: 3.13-alpine
 
 apps:
-  homelabUi: 1.5.1
+  homelabUi: 1.5.2
   agentToolbox: 1.2.0
   agentRuntime: 2.0.0

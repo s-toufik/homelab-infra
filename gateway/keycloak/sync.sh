@@ -64,6 +64,14 @@ echo "role admin can manage accounts and their roles"
 k update users/profile -r "$realm" -s unmanagedAttributePolicy=ENABLED
 echo "accounts can keep their own attributes (homelab-ui theme)"
 
+if ! k get authentication/required-actions/delete_account -r "$realm" >/dev/null 2>&1; then
+  k create authentication/register-required-action -r "$realm" \
+    -s providerId=delete_account -s name="Delete Account"
+fi
+k update authentication/required-actions/delete_account -r "$realm" -s enabled=true
+k add-roles -r "$realm" --rname "default-roles-$realm" --cclientid account --rolename delete-account
+echo "people can delete their own account (Account page in homelab-ui)"
+
 client_uuid() {
   k get clients -r "$realm" -q clientId="$1" --fields id --format csv --noquotes
 }

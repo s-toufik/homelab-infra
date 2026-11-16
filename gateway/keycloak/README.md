@@ -26,7 +26,9 @@ make users                          # list accounts
 make sessions-revoke                # sign every account out now
 ```
 
-Accounts can also be managed from homelab-ui's **People** pages by an account with the `admin` role: add a person (with a temporary password generated in the browser, shown once, which Keycloak makes them change at their first sign-in), give and take pages, disable, sign out, reset a password. Removing an account stays here, because it may also delete its Tasker data.
+Accounts can also be managed from homelab-ui's **People** pages by an account with the `admin` role: add a person (with a temporary password generated in the browser, shown once, which Keycloak makes them change at their first sign-in), give and take pages, disable, sign out, reset a password, and delete an account (not their own). Deleting from the UI removes the Keycloak account only; `make user-remove` here also deletes the person's Tasker data.
+
+Everyone can delete their own account from homelab-ui's **Account** page: it opens Keycloak's Delete Account step (`kc_action=delete_account`), which `sync.sh` turns on, and every account gets the `account` client's `delete-account` role through `default-roles-homelab`.
 
 ## Pages a person may open
 
