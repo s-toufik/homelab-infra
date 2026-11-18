@@ -14,6 +14,7 @@ SPECS=(
   "mongodb-mcp|Opaque|username=mcp password:24"
   "pg-role-mcp|kubernetes.io/basic-auth|username=mcp password:24"
   "pg-role-agent-runtime|kubernetes.io/basic-auth|username=agent_runtime password:24"
+  "pg-role-kitchen-atelier|kubernetes.io/basic-auth|username=kitchen_atelier password:24"
   "grafana-mcp|Opaque|token?"
   "agent-runtime|Opaque|llm-api-key?"
 )
@@ -29,6 +30,7 @@ ROTATABLE=(
   mongodb-mcp/password
   pg-role-mcp/password
   pg-role-agent-runtime/password
+  pg-role-kitchen-atelier/password
 )
 
 spec_of() {

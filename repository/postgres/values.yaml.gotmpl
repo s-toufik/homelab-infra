@@ -33,6 +33,9 @@ roles:
   - name: agent_runtime
     login: true
     passwordSecret: { name: pg-role-agent-runtime }
+  - name: kitchen_atelier
+    login: true
+    passwordSecret: { name: pg-role-kitchen-atelier }
 
 databases:
   - name: keycloak

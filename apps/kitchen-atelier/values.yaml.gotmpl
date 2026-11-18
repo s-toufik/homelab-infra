@@ -1,0 +1,24 @@
+networkPolicy:
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: caddy } }
+      ports: [{ protocol: TCP, port: 8002 }]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    - to:
+        - podSelector: { matchLabels: { cnpg.io/cluster: postgres } }
+      ports: [{ protocol: TCP, port: 5432 }]
+    - to:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: mongodb } }
+      ports: [{ protocol: TCP, port: 27017 }]
+    - to:
+        - podSelector: { matchLabels: { app.kubernetes.io/name: otel-collector } }
+      ports: [{ protocol: TCP, port: 4317 }, { protocol: TCP, port: 4318 }]
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16]
+      ports: [{ protocol: TCP, port: 443 }]

@@ -19,6 +19,7 @@ Browser ── HTTPS ──► caddy ── "signed in?" ──► oauth2-proxy 
          /api/kafka/…       kafka-ui        (/api/clusters/*; changes: admin only)
          /api/llm/…         llm             (/v1/models, /v1/chat/completions, /running, /logs*; unload: admin only)
          /api/toolbox/…     agent-toolbox   (/mcp; Host rewritten to agent-toolbox:8001, Origin dropped)
+         /api/kitchen/…     kitchen-atelier (/v1/recipes*, /v1/ingredients)
          /api/account/…     keycloak        (/realms/homelab/account/*, with the session's access token)
          /api/kube/…        kube-api        (the Kubernetes API; admin only)
          /api/tasker/…      postgrest       (+ X-Gateway-Secret)

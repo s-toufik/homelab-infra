@@ -207,6 +207,15 @@ releases:
     labels: { group: apps }
     needs: [homelab/grafana-mcp, homelab/mongodb-mcp, homelab/postgres-mcp]
 
+  - name: kitchen-atelier
+    inherit: [{ template: homelab }]
+    chart: homelab/kitchen-atelier
+    version: {{ .Values.apps.kitchenAtelier }}
+    labels: { group: apps }
+    needs: [homelab/postgres, homelab/db-migrate, homelab/mongodb]
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-kitchen-atelier, mongodb] }
+
   - name: agent-runtime
     inherit: [{ template: homelab }]
     chart: homelab/agent-runtime

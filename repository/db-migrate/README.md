@@ -1,6 +1,6 @@
 # db-migrate: PostgreSQL migrations
 
-Versioned SQL for the schemas the homelab owns (today: `tasker`, served by [PostgREST](../postgrest/README.md)), applied by [dbmate](https://github.com/amacneil/dbmate). The database itself, its roles and passwords are [repository/postgres](../postgres/README.md).
+Versioned SQL for the schemas the homelab owns (`tasker`, served by [PostgREST](../postgrest/README.md); `kitchen`, read and written directly by [kitchen-atelier](https://github.com/s-toufik/kitchen-atelier)), applied by [dbmate](https://github.com/amacneil/dbmate). The database itself, its roles and passwords are [repository/postgres](../postgres/README.md).
 
 ```text
 repository/db-migrate/
@@ -10,7 +10,8 @@ repository/db-migrate/
     ├── 002_create_schema_and_tables.sql  tasker.workflows, tasker.block_favorites, owner column, JSON checks
     ├── 003_create_auth_functions.sql     tasker.current_username(), tasker.check_request()
     ├── 004_enable_rls.sql                row-level security, enforced, owner-only policies
-    └── 005_grant_permissions.sql         privileges; PUBLIC loses access to the schema and to public's CREATE
+    ├── 005_grant_permissions.sql         privileges; PUBLIC loses access to the schema and to public's CREATE
+    └── 006_create_kitchen_schema_and_ingredients.sql  kitchen_atelier (login, owns its schema directly), kitchen.ingredients (the CIQUAL catalog)
 ```
 
 ## How it runs

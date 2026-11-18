@@ -225,6 +225,16 @@
 				}
 			}
 
+			handle_path /api/kitchen/* {
+				import page_access * role:admin,role:app:kitchen
+				@blocked not path /v1/recipes /v1/recipes/* /v1/ingredients /actuator/health/*
+				respond @blocked 404
+				import no_cross_site_writes
+				reverse_proxy kitchen-atelier:8002 {
+					header_up -Cookie
+				}
+			}
+
 			handle_path /api/account/* {
 				import no_cross_site_writes
 				forward_auth oauth2-proxy:4180 {
@@ -298,6 +308,7 @@
 			import health_route llm llm:8080 /health
 			import health_route llm-sd llm-sd:8000 /targets
 			import health_route agent-runtime agent-supervisor:8000 /actuator/health/readiness
+			import health_route kitchen-atelier kitchen-atelier:8002 /actuator/health/readiness
 			handle /api/health/agent-toolbox {
 				rewrite * /actuator/health
 				reverse_proxy agent-toolbox:8001 {
