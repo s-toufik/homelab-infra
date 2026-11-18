@@ -7,6 +7,7 @@ agent:kitchen
 agent:travel
 app:tasker
 app:kitchen
+app:issues
 page:status
 page:dashboards
 page:metrics

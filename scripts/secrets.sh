@@ -9,6 +9,7 @@ SPECS=(
   "grafana-oidc|Opaque|client-secret:32"
   "grafana-admin|Opaque|username=admin password:24"
   "tasker-gateway|Opaque|secret:32"
+  "issues-gateway|Opaque|secret:32"
   "llm-gateway|Opaque|api-key:32"
   "mongodb|Opaque|username=root password:24"
   "mongodb-mcp|Opaque|username=mcp password:24"
@@ -26,6 +27,7 @@ ROTATABLE=(
   oauth2-proxy/cookie-secret
   grafana-oidc/client-secret
   tasker-gateway/secret
+  issues-gateway/secret
   llm-gateway/api-key
   mongodb-mcp/password
   pg-role-mcp/password

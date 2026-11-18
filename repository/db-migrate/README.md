@@ -1,6 +1,6 @@
 # db-migrate: PostgreSQL migrations
 
-Versioned SQL for the schemas the homelab owns (`tasker`, served by [PostgREST](../postgrest/README.md); `kitchen`, read and written directly by [kitchen-atelier](https://github.com/s-toufik/kitchen-atelier)), applied by [dbmate](https://github.com/amacneil/dbmate). The database itself, its roles and passwords are [repository/postgres](../postgres/README.md).
+Versioned SQL for the schemas the homelab owns (`tasker` and `issues`, each served by their own [PostgREST](../postgrest/README.md) instance; `kitchen`, read and written directly by [kitchen-atelier](https://github.com/s-toufik/kitchen-atelier)), applied by [dbmate](https://github.com/amacneil/dbmate). The database itself, its roles and passwords are [repository/postgres](../postgres/README.md).
 
 ```text
 repository/db-migrate/
@@ -11,7 +11,8 @@ repository/db-migrate/
     ├── 003_create_auth_functions.sql     tasker.current_username(), tasker.check_request()
     ├── 004_enable_rls.sql                row-level security, enforced, owner-only policies
     ├── 005_grant_permissions.sql         privileges; PUBLIC loses access to the schema and to public's CREATE
-    └── 006_create_kitchen_schema_and_ingredients.sql  kitchen_atelier (login, owns its schema directly), kitchen.ingredients (the CIQUAL catalog)
+    ├── 006_create_kitchen_schema_and_ingredients.sql  kitchen_atelier (login, owns its schema directly), kitchen.ingredients (the CIQUAL catalog)
+    └── 007_create_issues_schema.sql      issues_web (no login), issues.reports, RLS: insert your own, admin triage left to Caddy
 ```
 
 ## How it runs

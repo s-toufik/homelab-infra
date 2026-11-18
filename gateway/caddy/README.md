@@ -23,6 +23,7 @@ Browser ── HTTPS ──► caddy ── "signed in?" ──► oauth2-proxy 
          /api/account/…     keycloak        (/realms/homelab/account/*, with the session's access token)
          /api/kube/…        kube-api        (the Kubernetes API; admin only)
          /api/tasker/…      postgrest       (+ X-Gateway-Secret)
+         /api/issues/…      postgrest-issues (+ X-Gateway-Secret; anyone can POST, admin only for GET/PATCH)
          /api/health/<svc>  every container's health endpoint (homelab-ui's Status page)
          /oauth2/…          oauth2-proxy    (sign in, sign out, /oauth2/userinfo)
   :8443                     keycloak        (sign-in pages; /admin blocked)
@@ -55,6 +56,8 @@ Caddy's ports are host ports bound to the Tailscale address only: the tailnet's 
   |---|---|
   | `/api/agents/<n>/v1/*`, `/api/agent/v1/*` | `agent:<n>` (`agent:supervisor` for `/api/agent`); `/v1/agents` and health stay open to every signed-in person |
   | `/api/tasker/` | `app:tasker` |
+  | `/api/kitchen/` | `app:kitchen` |
+  | `/api/issues/` | `app:issues` (create only — reading and triaging a report needs `admin`) |
   | `/api/prometheus/` | `page:metrics`, `page:dashboards`, `page:status` |
   | `/api/loki/` | `page:logs`, `page:dashboards` |
   | `/api/tempo/` | `page:traces`, `page:logs` |

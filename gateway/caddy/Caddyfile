@@ -121,6 +121,20 @@
 				}
 			}
 
+			handle_path /api/issues/* {
+				import page_access * role:admin,role:app:issues
+				@blocked not path /reports /reports/*
+				respond @blocked 404
+				import no_cross_site_writes
+				@issues_review not method POST OPTIONS
+				import admin_only @issues_review
+				reverse_proxy postgrest-issues:3000 {
+					header_up X-Gateway-Secret {$ISSUES_GATEWAY_SECRET}
+					header_up -Authorization
+					header_up -Cookie
+				}
+			}
+
 			handle_path /api/agent/* {
 				@blocked not path /v1/* /actuator/health/*
 				respond @blocked 404
@@ -288,6 +302,7 @@
 			import health_route keycloak keycloak:9000 /health/ready
 			import health_route oauth2-proxy oauth2-proxy:4180 /ping
 			import health_route postgrest postgrest:3002 /ready
+			import health_route postgrest-issues postgrest-issues:3002 /ready
 			import health_route kafka-ui kafka-ui:8080 /actuator/health
 			import health_route prometheus prometheus:9090 /-/ready
 			import health_route kafka-exporter kafka-exporter:9308 /metrics

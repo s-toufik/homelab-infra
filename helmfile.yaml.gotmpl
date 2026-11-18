@@ -67,6 +67,13 @@ releases:
     hooks:
       - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-postgrest, tasker-gateway] }
 
+  - name: postgrest-issues
+    inherit: [{ template: homelab }]
+    labels: { group: repository }
+    needs: [homelab/db-migrate]
+    hooks:
+      - { events: [presync], showlogs: true, command: ./scripts/secrets.sh, args: [check, pg-role-postgrest, issues-gateway] }
+
   - name: mongodb
     inherit: [{ template: homelab }]
     labels: { group: repository }
