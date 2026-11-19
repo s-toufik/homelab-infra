@@ -241,7 +241,7 @@
 
 			handle_path /api/kitchen/* {
 				import page_access * role:admin,role:app:kitchen
-				@blocked not path /v1/recipes /v1/recipes/* /v1/ingredients /actuator/health/*
+				@blocked not path /v1/recipes /v1/recipes/* /v1/ingredients /v1/ingredients/* /actuator/health/*
 				respond @blocked 404
 				import no_cross_site_writes
 				reverse_proxy kitchen-atelier:8002 {
