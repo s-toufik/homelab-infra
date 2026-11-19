@@ -18,10 +18,12 @@ resources:
 roles:
   - name: tasker_web
     login: false
+  - name: issues_web
+    login: false
   - name: postgrest
     login: true
     inherit: false
-    inRoles: [tasker_web]
+    inRoles: [tasker_web, issues_web]
     passwordSecret: { name: pg-role-postgrest }
   - name: keycloak
     login: true

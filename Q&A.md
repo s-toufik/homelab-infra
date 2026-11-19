@@ -197,6 +197,23 @@ Its own: one user per app, which can only touch its own schema and what you gran
 | the agents (`agent-<name>`) | `agent_runtime` | `pg-role-agent-runtime` | the database `agent_runtime` (their A2A tasks, table `tasks_<name>` each) |
 | `homelab` | `homelab` | `postgres-app` | owns the database `homelab`; unused |
 
+## How do I add another PostgREST role like tasker_web?
+
+PostgREST logs in as one role, `postgrest`, then switches (`SET ROLE`) into the schema's own role per request — `tasker_web` for Tasker, `issues_web` for Issues — so that schema's row-level-security policies apply. Two places need the new role, not one:
+
+1. **The migration** creates it (`CREATE ROLE myschema_web NOLOGIN`) and grants it the schema's own tables, the way [`007_create_issues_schema.sql`](repository/db-migrate/migrations/007_create_issues_schema.sql) does for `issues_web`.
+2. **`postgrest`'s `inRoles` in [`repository/postgres/values.yaml.gotmpl`](repository/postgres/values.yaml.gotmpl)** must list it too:
+   ```yaml
+   roles:
+     - name: myschema_web
+       login: false
+     - name: postgrest
+       inRoles: [tasker_web, issues_web, myschema_web]
+   ```
+   Then `make apply R=postgres` — raw: `helmfile -l name=postgres apply`.
+
+Skipping step 2 looks like it works at first: a `GRANT myschema_web TO postgrest;` run by the migration (or by hand) grants it immediately. But CloudNativePG's managed-roles feature treats `postgrest`'s declared `inRoles` as its *complete* membership and revokes anything else on its next reconcile — so the grant quietly disappears again within a reconcile cycle, and PostgREST starts failing every request on that schema with `permission denied to set role "myschema_web"` (Postgres `42501`). This is exactly what happened to `issues_web`: it was granted by a migration but never added to `postgrest`'s `inRoles`, so CloudNativePG kept reverting it — re-running the grant (even in a new migration) didn't help, because the chart, not the migration, is what CloudNativePG keeps converging back to.
+
 ## How do I connect to MongoDB?
 
 MongoDB answers on the server's port 27017, from the tailnet only. The account is MongoDB's root: username `root`, password in Secret `mongodb`.

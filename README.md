@@ -47,8 +47,9 @@ Each group is a folder and a label of the release train ([`helmfile.yaml.gotmpl`
 | **[llm/](llm)** | [LLM (llama-swap)](llm/llm/README.md) · llm-sd | Local models behind an OpenAI-compatible API, plus a playground; llm-sd tells Prometheus which models are loaded |
 | | [MCP Inspector](llm/mcp-inspector/README.md) | Lists and tries the toolbox's tools in the browser, behind the sign-in |
 | | grafana-mcp · mongodb-mcp · postgres-mcp | Grafana's, MongoDB's and PostgreSQL's MCP servers: agent-toolbox republishes their tools (`grafana_*`, `mongodb_*`, `postgres_*`), read-only unless `mcp.<server>.write` in `environments/default.yaml` says otherwise |
-| **[apps/](apps)** — yours, each from its own repository | homelab-ui | The front door: a control center, a **Status** page, every tool rebuilt as its own page (dashboards, metrics, logs, traces, Kafka, models, tools, account, Kubernetes), the agent beside every page, and Tasker |
+| **[apps/](apps)** — yours, each from its own repository | homelab-ui | The front door: a control center, a **Status** page, every tool rebuilt as its own page (dashboards, metrics, logs, traces, Kafka, models, tools, account, Kubernetes), the agent beside every page, Tasker and Kitchen |
 | | the agents · agent-toolbox | One agent-runtime pod per agent, `agent-<name>` (supervisor, observation, analysis, coding, security, kitchen, travel), and their tools by scope (files, Python sandbox, Grafana, the databases' MCP servers); the supervisor answers what needs no data and hands the rest to the others. Reachable from the tailnet only; the toolbox is fenced off from the databases |
+| | kitchen-atelier | Recipes, versioned, in a MongoDB `kitchen` database, and a French ingredient/macro catalog in a `kitchen` schema inside the shared `homelab` PostgreSQL database, kept fresh by a weekly CronJob against ANSES's CIQUAL table; served to homelab-ui's Kitchen page and read by the kitchen agent's own scoped tools |
 
 ## How it ships
 
@@ -80,6 +81,7 @@ SIGN-IN — every browser request
                        │         /api/prometheus/  ─► prometheus  (queries only)
                        │         /api/loki/ tempo/ alloy/ kafka/ llm/ toolbox/ account/
                        │                           ─► the tools' APIs, for homelab-ui's own pages
+                       │         /api/kitchen/      ─► kitchen-atelier ─► MongoDB · PostgreSQL (schema kitchen)
                        │         /api/kube/        ─► kube-api ─► Kubernetes API  (admin only)
                        │         /api/health/<svc> ─► each service's health endpoint  (Status page)
                        ├─ :8443  ─► keycloak  (sign-in and account pages; /admin blocked)
@@ -97,6 +99,9 @@ DATA
                                                        ├─ OpenAI API ─► NVIDIA's API, or llm
                                                        ├─ conversations ─► MongoDB
                                                        └─ A2A tasks ─► PostgreSQL
+  homelab-ui (Kitchen) ─► /api/kitchen ─► kitchen-atelier ─┬─ recipes, versions ─► MongoDB (db kitchen)
+                                                           ├─ ingredients ─► PostgreSQL (schema kitchen in homelab)
+                                                           └─ weekly refresh ─► ANSES CIQUAL (the internet)
   db-migrate job (dbmate) ─► PostgreSQL schema       CloudNativePG ─► roles, passwords, databases
   backups (every night)   ─► /var/backups/homelab on the server: PostgreSQL and MongoDB dumps
 
