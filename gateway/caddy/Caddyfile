@@ -1,5 +1,9 @@
 {
 	auto_https disable_redirects
+	log {
+		output stdout
+		format json
+	}
 }
 
 (strip_identity) {
@@ -96,6 +100,8 @@
 }
 
 {$HOMELAB_DOMAIN} {
+	log
+
 	route {
 		import strip_identity
 

@@ -9,6 +9,7 @@ env:
   PGRST_DB_PRE_REQUEST: tasker.check_request
   PGRST_OPENAPI_MODE: disabled
   PGRST_ADMIN_SERVER_PORT: "3002"
+  PGRST_LOG_LEVEL: info
 secretEnv:
   POSTGREST_PASSWORD: { secret: pg-role-postgrest, key: password }
   PGRST_APP_SETTINGS_GATEWAY_SECRET: { secret: tasker-gateway, key: secret }
