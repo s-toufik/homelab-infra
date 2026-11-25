@@ -7,7 +7,7 @@ Browser ── HTTPS, signed in ──► caddy :6274 ──► mcp-inspector:62
                                                  └── NetworkPolicy: only Caddy in, only agent-toolbox and the internet out ──┘
 ```
 
-- `servers.json` is its server list, read-only: agent-toolbox only. The page can't add servers.
+- Its server list, read-only, is agent-toolbox only, with the toolbox's bearer token in an `Authorization` header. Because it carries the token, `make toolbox-token` writes it to the Secret `mcp-inspector-servers` (not a ConfigMap), mounted as `/etc/mcp-inspector/servers.json`. The page can't add servers.
 - It can start processes, so like agent-toolbox it is fenced by a NetworkPolicy ([`values.yaml.gotmpl`](values.yaml.gotmpl)): only Caddy reaches it, and it reaches agent-toolbox and the internet, no database, Kafka or LLM. It publishes no port: Caddy serves it.
 - It checks the `Host` header against its own name (Caddy rewrites it to `mcp-inspector:6274`) and the browser's `Origin` against `https://<HOMELAB_DOMAIN>:6274` (`ALLOWED_ORIGINS`). Its API token is generated at each start and handed to the page it serves.
 - Version: `images.mcpInspector` in `environments/versions.yaml`.

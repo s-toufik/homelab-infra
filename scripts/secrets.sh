@@ -18,7 +18,12 @@ SPECS=(
   "pg-role-kitchen-atelier|kubernetes.io/basic-auth|username=kitchen_atelier password:24"
   "grafana-mcp|Opaque|token?"
   "agent-runtime|Opaque|llm-api-key?"
+  "agent-toolbox-jwt|Opaque|key:32 username=admin"
+  "agent-toolbox-token|Opaque|token?"
+  "mcp-inspector-servers|Opaque|servers?"
 )
+
+FROM_TOOLBOX=(agent-toolbox-token/token mcp-inspector-servers/servers)
 
 ROTATABLE=(
   pg-role-postgrest/password
@@ -33,6 +38,7 @@ ROTATABLE=(
   pg-role-mcp/password
   pg-role-agent-runtime/password
   pg-role-kitchen-atelier/password
+  agent-toolbox-jwt/key
 )
 
 spec_of() {
@@ -86,6 +92,23 @@ missing_keys() {
   done
 }
 
+issue_toolbox_token() {
+  k rollout status deploy/agent-toolbox --timeout=180s >/dev/null || return 1
+  k exec deploy/agent-toolbox -c agent-toolbox -- python -c '
+import json, os, urllib.request
+body = json.dumps({"username": os.environ["JWT_USERNAME"], "expire": "never"}).encode()
+request = urllib.request.Request(
+    "http://127.0.0.1:8001/auth/token", body, {"content-type": "application/json"}
+)
+print(json.load(urllib.request.urlopen(request, timeout=10))["access_token"])'
+}
+
+inspector_servers() {
+  jq -cn --arg token "$1" '{mcpServers: {"agent-toolbox": {
+    type: "http", url: "http://agent-toolbox:8001/mcp", headers: {Authorization: ("Bearer " + $token)}
+  }}}'
+}
+
 ensure_namespace() {
   k get namespace "$NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$NAMESPACE" >/dev/null
 }
@@ -106,7 +129,13 @@ case "$action" in
       write_secret "$name"
       left="$(missing_keys "$name")"
       if [[ -n "$left" ]]; then
-        for key in $left; do yellow "  ! $name/$key is yours to type: make secret-set SECRET=$name KEY=$key"; done
+        for key in $left; do
+          if printf '%s\n' "${FROM_TOOLBOX[@]}" | grep -qx "$name/$key"; then
+            yellow "  ! $name/$key comes from agent-toolbox: make toolbox-token once it runs (its release does it after each sync)"
+          else
+            yellow "  ! $name/$key is yours to type: make secret-set SECRET=$name KEY=$key"
+          fi
+        done
       else
         green "  ✓ $name created"
       fi
@@ -127,6 +156,25 @@ case "$action" in
       problems=$((problems + 1))
     done
     (( problems == 0 )) || { red "Run ./scripts/secrets.sh (and secrets.sh set … for typed values) first."; exit 1; }
+    ;;
+  toolbox-token)
+    command -v jq >/dev/null || { red "jq not found"; exit 1; }
+    stored_token="$(stored agent-toolbox-token token)"
+    if [[ "${2:-}" != "--renew" && -n "$stored_token" && -z "$(missing_keys mcp-inspector-servers)" ]]; then
+      green "  ✓ agent-toolbox-token"
+      exit 0
+    fi
+    if [[ "${2:-}" != "--renew" && -n "$stored_token" ]]; then
+      token="$(printf '%s' "$stored_token" | base64 --decode)"
+    else
+      token="$(issue_toolbox_token)" || { red "agent-toolbox issued no token: is it running? (make status)"; exit 1; }
+    fi
+    [[ "$token" == *.*.* ]] || { red "agent-toolbox answered something that isn't a token"; exit 1; }
+    ensure_namespace
+    write_secret agent-toolbox-token "token=$token"
+    write_secret mcp-inspector-servers "servers=$(inspector_servers "$token")"
+    unset token stored_token
+    green "  ✓ agent-toolbox-token and the MCP Inspector's server list written; the pods using them restart"
     ;;
   list)
     k get secrets -l app.kubernetes.io/managed-by=homelab-secrets \
@@ -162,6 +210,8 @@ case "$action" in
         yellow "  ! give Keycloak the new client secret: make sync R=keycloak" ;;
       mongodb-mcp/password)
         yellow "  ! give MongoDB the new password: make sync R=mongodb" ;;
+      agent-toolbox-jwt/key)
+        yellow "  ! every toolbox token is refused now: once agent-toolbox has restarted, make toolbox-token RENEW=1" ;;
     esac
     ;;
   *)
@@ -173,6 +223,8 @@ Usage:
   $0 show                   every password and key, with its value
   $0 set <secret> <key>     type a value yourself (e.g. agent-runtime llm-api-key)
   $0 rotate <secret> <key>  replace a generated value; the pods using it restart
+  $0 toolbox-token [--renew]  store agent-toolbox's service token (for the agents, Caddy and the
+                            MCP Inspector) if missing; --renew asks agent-toolbox for a new one
 EOF
     exit 1
     ;;

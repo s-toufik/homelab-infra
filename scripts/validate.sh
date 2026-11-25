@@ -89,7 +89,6 @@ else
   fail "gateway/caddy/Caddyfile:"; sed 's/^/      /' "${TMPDIR:-/tmp}/caddy-validate.log" >&2
 fi
 if bash -n gateway/keycloak/sync.sh; then ok "gateway/keycloak/sync.sh (syntax)"; else fail "gateway/keycloak/sync.sh has a syntax error"; fi
-if jq empty llm/mcp-inspector/servers.json 2>/dev/null; then ok "llm/mcp-inspector/servers.json (JSON)"; else fail "llm/mcp-inspector/servers.json is not valid JSON"; fi
 for f in observability/grafana/dashboards/*.json; do
   if jq empty "$f" 2>/dev/null; then ok "$f (JSON)"; else fail "$f is not valid JSON"; fi
 done

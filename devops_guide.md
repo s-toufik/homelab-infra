@@ -1055,7 +1055,14 @@ Kubernetes Secrets in namespace `homelab`, encrypted on disk by k3s. Never in gi
 1. `make secret-rotate SECRET=<secret> KEY=<key>` — raw: `./scripts/secrets.sh rotate <secret> <key>`
 2. The pods using it restart; PostgreSQL applies a new role password by itself.
 3. For `oauth2-proxy/client-secret` or `grafana-oidc/client-secret`: `make sync R=keycloak`.
-- Rotatable: `pg-role-postgrest/password`, `pg-role-keycloak/password`, `pg-role-agent-runtime/password`, `oauth2-proxy/client-secret`, `oauth2-proxy/cookie-secret` (signs everyone out), `grafana-oidc/client-secret`, `tasker-gateway/secret`, `llm-gateway/api-key`.
+4. For `agent-toolbox-jwt/key`: every toolbox token is refused from then on, so once agent-toolbox has restarted, `make toolbox-token RENEW=1`.
+- Rotatable: `pg-role-postgrest/password`, `pg-role-keycloak/password`, `pg-role-agent-runtime/password`, `oauth2-proxy/client-secret`, `oauth2-proxy/cookie-secret` (signs everyone out), `grafana-oidc/client-secret`, `tasker-gateway/secret`, `llm-gateway/api-key`, `agent-toolbox-jwt/key` (refuses every toolbox token).
+
+**The toolbox's service token** (`agent-toolbox-token`, and the MCP Inspector's server list in `mcp-inspector-servers`)
+- agent-toolbox asks for `Authorization: Bearer <token>` on `/mcp`. Its tokens are signed with `agent-toolbox-jwt/key`; `agent-toolbox-jwt/username` (`admin` unless you set it) is the one user who may get a token that never expires.
+- The agents (`TOOLBOX_TOKEN`), Caddy's `/api/toolbox` route and the MCP Inspector share one such token. agent-toolbox's release stores it after each sync if it is missing, by asking the running toolbox (`POST /auth/token`): nothing to type.
+- By hand: `make toolbox-token` (stores it if missing), `make toolbox-token RENEW=1` (asks for a new one) — raw: `./scripts/secrets.sh toolbox-token [--renew]`.
+- `/auth/token` asks for no password: anything that reaches agent-toolbox, the tailnet included (its port 8001), can get a token, and claiming the username a never-expiring one. Caddy only forwards `/mcp` paths, so it can't be reached from the web.
 - Not rotatable (read once, when their data is created): `keycloak-admin`, `grafana-admin`, `mongodb`.
 
 **Read one** (e.g. the LLM API key, for a script)

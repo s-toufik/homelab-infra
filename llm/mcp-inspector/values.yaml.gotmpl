@@ -36,12 +36,13 @@ podSecurityContext:
   runAsUser: 1000
   runAsGroup: 1000
 
-configFiles:
-  servers:
-    mountPath: /etc/mcp-inspector
-    files:
-      servers.json: |
-        {{- readFile "servers.json" | nindent 8 }}
+extraVolumes:
+  - name: servers
+    secret:
+      secretName: mcp-inspector-servers
+      items: [{ key: servers, path: servers.json }]
+extraVolumeMounts:
+  - { name: servers, mountPath: /etc/mcp-inspector, readOnly: true }
 
 networkPolicy:
   ingress:

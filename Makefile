@@ -47,6 +47,10 @@ secret-set: ## Type a value yourself: make secret-set SECRET=agent-runtime KEY=l
 secret-rotate: ## Replace a generated value: make secret-rotate SECRET=tasker-gateway KEY=secret
 	@./scripts/secrets.sh rotate "$(SECRET)" "$(KEY)"
 
+.PHONY: toolbox-token
+toolbox-token: ## Store agent-toolbox's service token if missing (RENEW=1 for a new one, e.g. after rotating its key)
+	@./scripts/secrets.sh toolbox-token $(if $(RENEW),--renew)
+
 .PHONY: validate
 validate: ## Check before deploying: tools, cluster, firewall, Secrets, the train renders, ports, configs
 	@./scripts/validate.sh

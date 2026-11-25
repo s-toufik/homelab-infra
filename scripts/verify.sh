@@ -22,10 +22,22 @@ contains() { [[ "$1" == *"$2"* ]]; }
 equals() { [[ "$1" == "$2" ]]; }
 not() { ! "$@"; }
 inside() { k exec deploy/caddy -c caddy -- wget -q -T 5 -O - "$@" 2>/dev/null || true; }
+toolbox_token() {
+  k exec deploy/caddy -c caddy -- wget -q -T 10 -O - --header 'Content-Type: application/json' \
+    --post-data '{"username":"verify"}' http://agent-toolbox:8001/auth/token 2>/dev/null |
+    jq -r '.access_token // empty' 2>/dev/null || true
+}
+toolbox_bearer=""
 mcp_tools() {
   k exec deploy/caddy -c caddy -- wget -q -T 20 -O - \
     --header 'Content-Type: application/json' --header 'Accept: application/json, text/event-stream' \
+    --header "Authorization: Bearer ${toolbox_bearer}" \
     --post-data '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' "http://agent-toolbox:8001/mcp${1:-}" 2>/dev/null || true
+}
+mcp_without_token() {
+  k exec deploy/caddy -c caddy -- wget -q -T 20 -O /dev/null \
+    --header 'Content-Type: application/json' --header 'Accept: application/json, text/event-stream' \
+    --post-data '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' "http://agent-toolbox:8001/mcp${1:-}" 2>&1 || true
 }
 series() { inside "http://prometheus:9090/api/v1/query?query=$(jq -rn --arg q "$1" '$q | @uri')" | jq -r '.data.result | length' 2>/dev/null || echo 0; }
 positive() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 > 0 )); }
@@ -228,6 +240,12 @@ expect "agent-toolbox can't reach the server itself (its Kubernetes API)" not ca
 expect "agent-toolbox reaches Grafana's MCP server" can_reach agent-toolbox grafana-mcp 8000
 expect "agent-toolbox reaches MongoDB's MCP server" can_reach agent-toolbox mongodb-mcp 3000
 expect "agent-toolbox reaches PostgreSQL's MCP server" can_reach agent-toolbox postgres-mcp 8000
+toolbox_bearer="$(toolbox_token)"
+expect "agent-toolbox issues a token at POST /auth/token" not equals "$toolbox_bearer" ""
+expect "agent-toolbox refuses /mcp without a token (401)" contains "$(mcp_without_token)" "401"
+expect "agent-toolbox refuses /mcp/kitchen without a token (401)" contains "$(mcp_without_token /kitchen)" "401"
+expect "the agents, Caddy and the MCP Inspector have the toolbox token (Secrets agent-toolbox-token, mcp-inspector-servers)" \
+  ./scripts/secrets.sh check agent-toolbox-token mcp-inspector-servers
 toolbox_tools="$(mcp_tools)"
 for tool in grafana_search_dashboards mongodb_find postgres_execute_sql; do
   expect "agent-toolbox offers $tool" contains "$toolbox_tools" "\"$tool\""
@@ -240,6 +258,9 @@ expect "the observation scope doesn't offer python_executor (not in its tools)" 
 expect "the analysis scope has its own python_executor" contains "$(mcp_tools /analysis)" '"python_executor"'
 expect "the observation scope doesn't offer PostgreSQL's tools" \
   not contains "$observation_tools" '"postgres_execute_sql"'
+kitchen_tools="$(mcp_tools /kitchen)"
+expect "the kitchen scope offers its recipe tools" contains "$kitchen_tools" '"recipes_find"'
+expect "the kitchen scope doesn't offer raw SQL" not contains "$kitchen_tools" '"postgres_execute_sql"'
 
 echo
 if (( errors > 0 )); then red "$errors check(s) failed."; exit 1; fi

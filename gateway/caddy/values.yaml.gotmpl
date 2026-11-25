@@ -8,6 +8,7 @@ secretEnv:
   TASKER_GATEWAY_SECRET: { secret: tasker-gateway, key: secret }
   ISSUES_GATEWAY_SECRET: { secret: issues-gateway, key: secret }
   LLM_GATEWAY_API_KEY: { secret: llm-gateway, key: api-key }
+  TOOLBOX_TOKEN: { secret: agent-toolbox-token, key: token, optional: true }
 
 ports:
   - { name: https, port: 443, hostPort: 443 }
